@@ -36,8 +36,14 @@ Copy `desk/config.example.json` to `trader/config.json` to change anything.
 
 1. Python 3.8+ (no packages needed).
 2. Telegram: put your bot token in `.env`, send "hello" to the bot, run `python desk/alerts.py setup`.
-3. Tests: `python -m unittest discover -s tests -v`
+3. Tests: `python -m unittest discover -s tests -v` (48 tests, including stress tests)
 4. Alerts: `python desk/alerts.py watch` sends breakouts, paper exits, the flat-by warning and watchlist news.
+
+## Replay on real data
+
+`python desk/replay.py --usd 50 --days 20` plays recent real NSE sessions through the whole desk
+(scan, plan, risk gate, simulated yes, fills) on a fake account, in its own folder.
+It never touches your journal or Telegram. Past results do not predict future ones.
 
 ## Data and caveats
 

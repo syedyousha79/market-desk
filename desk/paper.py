@@ -33,12 +33,16 @@ def ready(plan, cfg, now):
     return True, "READY: risk PASS, waiting for your yes"
 
 
-def explicit_yes(reply, symbol):
+def explicit_yes(reply, symbol, qty=None):
+    """True only for a plain yes to this one order. A number in the reply must be the planned quantity."""
     r = reply.strip().lower().rstrip(".!")
     if "all" in r.split():
         return False
+    for n in re.findall(r"\d+", r):
+        if qty is None or int(n) != int(qty):
+            return False
     other = re.findall(r"[a-z&]{2,}", r)
-    allowed = {"yes", "buy", "sell", "place", "it", "go", "ahead", symbol.lower()}
+    allowed = {"yes", "buy", "sell", "place", "it", "go", "ahead", "shares", symbol.lower()}
     return bool(re.match(r"^(yes|y)\b", r)) and all(w in allowed for w in other)
 
 
@@ -78,10 +82,15 @@ def walk(row, bars, cfg):
     stop, target = float(row["stop"]), float(row["target"])
     flat = C.hhmm(row.get("flat_by") or cfg["flat_by"])
     long_ = row["side"] == "long"
+    prev = None
     for b in bars:
         t = b["t"].strftime("%H:%M")
         if b["t"].time() >= flat:
+            if b["t"].time() > flat and prev is not None:
+                # the feed skipped the flat-by bar; you would have been out at flat_by at about the last price
+                return prev["c"], flat.strftime("%H:%M"), "flat-by (data gap)"
             return b["o"], t, "flat-by"
+        prev = b
         if long_:
             if b["o"] <= stop:
                 return b["o"], t, "stop (gap)"
@@ -144,7 +153,7 @@ def main(argv=None):
             raise C.DeskError("not placed: " + why)
         if not plan["paper"]:
             raise C.DeskError("config is set to live; this paper broker only simulates. Live orders go through Kite with their own approval.")
-        if not explicit_yes(a.reply, plan["symbol"]):
+        if not explicit_yes(a.reply, plan["symbol"], plan["qty"]):
             print("Not recorded: %r is not an explicit yes for this one order. Ask again." % a.reply)
             return 3
         rows = J.trades()

@@ -17,10 +17,26 @@ def path():
 
 
 def trades():
+    """All rows. A damaged journal raises DeskError, so the risk check blocks rather than guessing."""
     if not os.path.exists(path()):
         return []
-    with open(path(), newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+    try:
+        with open(path(), newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+            header = reader.fieldnames or []
+    except (csv.Error, UnicodeDecodeError, ValueError) as e:
+        raise C.DeskError("trader/journal.csv is damaged (%s)" % str(e)[:60])
+    missing = [k for k in ("date", "symbol", "status", "net_pnl", "max_loss") if k not in header]
+    if missing:
+        raise C.DeskError("trader/journal.csv is damaged: missing columns %s" % ", ".join(missing))
+    for r in rows:
+        for k in ("net_pnl", "max_loss", "charges"):
+            try:
+                float(r.get(k) or 0)
+            except ValueError:
+                raise C.DeskError("trader/journal.csv has a bad number in %s: %r" % (k, r.get(k)))
+    return rows
 
 
 def save(rows):

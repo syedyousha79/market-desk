@@ -57,6 +57,8 @@ class DeskTest(unittest.TestCase):
         make_fixture(self.data)
         self._trader = C.TRADER
         C.TRADER = os.path.join(self.tmp.name, "trader")
+        self._load_env = C.load_env
+        C.load_env = lambda: {}          # tests never see the real .env
         os.environ["NSE_OFFLINE"] = self.data
         os.environ["NSE_NO_TELEGRAM"] = "1"
         self.cfg = json.loads(json.dumps(C.DEFAULTS))
@@ -67,6 +69,7 @@ class DeskTest(unittest.TestCase):
 
     def tearDown(self):
         C.TRADER = self._trader
+        C.load_env = self._load_env
         os.environ.pop("NSE_OFFLINE", None)
         self.tmp.cleanup()
 

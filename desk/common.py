@@ -164,8 +164,11 @@ def read_json(name, default=None):
     path = state_path(name)
     if not os.path.exists(path):
         return default
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (ValueError, UnicodeDecodeError) as e:
+        raise DeskError("trader/%s is damaged (%s); delete it or restore it" % (name, str(e)[:60]))
 
 
 def write_json(name, data):
@@ -181,7 +184,7 @@ def write_json(name, data):
 
 def yahoo_symbol(t):
     t = t.strip().upper()
-    if t.startswith("^") or t.endswith(".NS") or t.endswith(".BO"):
+    if t.startswith("^") or "=" in t or t.endswith(".NS") or t.endswith(".BO"):   # ^index, INR=X currency
         return t
     return t + ".NS"
 
@@ -281,6 +284,8 @@ def _curl():
 
 
 def telegram_api(method, params=None):
+    if os.environ.get("NSE_OFFLINE") or os.environ.get("NSE_NO_TELEGRAM"):
+        raise DeskError("Telegram is disabled in offline and test runs")
     env = load_env()
     token = env.get("TELEGRAM_BOT_TOKEN", "")
     if not token or "paste" in token:

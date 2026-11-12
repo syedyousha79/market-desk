@@ -40,12 +40,15 @@ class NewsTest(unittest.TestCase):
         open(os.path.join(d, "news-ET_Markets.xml"), "w").write(ET)
         self._trader = C.TRADER
         C.TRADER = os.path.join(self.tmp.name, "trader")
+        self._load_env = C.load_env
+        C.load_env = lambda: {}
         os.environ["NSE_OFFLINE"] = d
         self.cfg = json.loads(json.dumps(C.DEFAULTS))
         self.now = C.now_ist("2026-11-10 11:00")
 
     def tearDown(self):
         C.TRADER = self._trader
+        C.load_env = self._load_env
         os.environ.pop("NSE_OFFLINE", None)
         self.tmp.cleanup()
 
