@@ -111,6 +111,8 @@ def main(argv=None):
                         reason = ln.strip("- ").split(" (")[0]
                         reason = "already traded today" if "trade(s) today" in reason else reason
                         reason = "outside entry window" if "entry window" in reason else reason
+                        reason = "today's loss budget used up by the open trade" if "today's loss budget" in reason else reason
+                        reason = "net reward:risk under the minimum after charges" if "reward:risk" in reason else reason
                         blocks[reason] = blocks.get(reason, 0) + 1
                     continue
                 quiet(P.main, ["open", "--reply", "yes", "--at", stamp])
