@@ -246,8 +246,11 @@ def fetch_bars(symbol, rng="5d", interval="5m"):
         with open(path, "rb") as f:
             raw = f.read()
     else:
-        url = "https://query1.finance.yahoo.com/v8/finance/chart/%s?range=%s&interval=%s" % (
-            urllib.parse.quote(sym), rng, interval)
+        # "since:YYYY" asks for an explicit date range: Yahoo's range=max silently downsamples daily bars
+        span = ("period1=%d&period2=%d" % (dt.datetime(int(rng[6:]), 1, 1).timestamp(), dt.datetime.now().timestamp())
+                if rng.startswith("since:") else "range=%s" % rng)
+        url = "https://query1.finance.yahoo.com/v8/finance/chart/%s?%s&interval=%s" % (
+            urllib.parse.quote(sym), span, interval)
         try:
             raw = _get(url)
         except Exception as e:
