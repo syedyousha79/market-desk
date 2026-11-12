@@ -212,8 +212,9 @@ class Boundaries(Base):
 
 
 class Fills(Base):
-    def row(self, side="long", entry=100.0, stop=99.0, target=102.0):
-        return {"side": side, "entry": entry, "stop": stop, "target": target, "qty": 10, "flat_by": "15:15"}
+    """Exit rules. Entry 100, stop 99, so 1R = 1 rupee a share."""
+    def row(self, side="long", entry=100.0, stop=99.0):
+        return {"side": side, "entry": entry, "stop": stop, "qty": 10, "flat_by": "15:15"}
 
     def bars(self, specs, start="10:00"):
         import datetime as dt
@@ -222,32 +223,94 @@ class Fills(Base):
         return [{"t": t0 + dt.timedelta(minutes=5 * i), "o": o, "h": hi, "l": lo, "c": c, "v": 1}
                 for i, (o, hi, lo, c) in enumerate(specs)]
 
+    def exit(self, specs, **kw):
+        return P.walk(self.row(**kw.pop("row", {})), self.bars(specs, **kw), self.cfg)
+
     def test_gap_through_stop_fills_at_open(self):
-        hit = P.walk(self.row(), self.bars([(97.5, 98, 97, 97.8)]), self.cfg)
+        hit, _ = self.exit([(97.5, 98, 97, 97.8)])
         self.assertEqual((hit[0], hit[2]), (97.5, "stop (gap)"))
 
-    def test_stop_and_target_same_bar_counts_as_stop(self):
-        hit = P.walk(self.row(), self.bars([(100, 103, 98.5, 101)]), self.cfg)
+    def test_stop_checked_before_profit_in_same_bar(self):
+        hit, _ = self.exit([(100, 103, 98.5, 101)])
         self.assertEqual(hit[2], "stop")
 
-    def test_gap_over_target_fills_at_open(self):
-        hit = P.walk(self.row(), self.bars([(103, 104, 102.5, 103.5)]), self.cfg)
-        self.assertEqual((hit[0], hit[2]), (103, "target"))
+    def test_user_scenario_25_to_50_dip_then_100(self):
+        # risk Rs 1/share: +1R, +2R, dip to +1.2R (above the lock), +4R, then fall back
+        hit, st = self.exit([(100, 101.1, 99.9, 101), (101, 102.1, 100.9, 102), (102, 102.1, 101.2, 101.3),
+                             (101.3, 104.1, 101.2, 104), (104, 104.1, 102.9, 103)])
+        self.assertEqual(hit[2], "trailing stop")
+        self.assertAlmostEqual(hit[0], 103.1)          # 4.1 best minus 1R trail: +3.1R kept
+        hit, st = self.exit([(100, 101.1, 99.9, 101), (101, 102.1, 100.9, 102), (102, 102.1, 101.2, 101.3)])
+        self.assertIsNone(hit)                         # the dip did not hit the +1.1R lock: hold
+        self.assertAlmostEqual(st["stop"], 101.1)
+
+    def test_break_even_after_1r(self):
+        hit, _ = self.exit([(100, 101.0, 99.9, 100.8), (100.8, 100.9, 99.8, 99.9)])
+        self.assertEqual((hit[0], hit[2]), (100.0, "break-even stop"))
+
+    def test_time_stop_when_nothing_happens(self):
+        hit, _ = self.exit([(100, 100.3, 99.8, 100.1)] * 6)
+        self.assertEqual((hit[1], hit[2]), ("10:25", "time stop"))
+
+    def test_bad_news_exits_next_bar(self):
+        import datetime as dt
+        bars = self.bars([(100, 100.6, 99.8, 100.5)] * 4)
+        hit, _ = P.walk(self.row(), bars, self.cfg, [dt.datetime(2026, 11, 10, 10, 7, tzinfo=C.IST)])
+        self.assertEqual((hit[1], hit[2]), ("10:10", "bad news"))
 
     def test_flat_by_exit(self):
-        hit = P.walk(self.row(), self.bars([(100.2, 100.4, 100.1, 100.3)] * 3, start="15:10"), self.cfg)
+        hit, _ = self.exit([(100.2, 100.6, 100.1, 100.5)] * 3, start="15:05")
         self.assertEqual((hit[1], hit[2]), ("15:15", "flat-by"))
 
     def test_missing_flat_by_bars_still_exit_at_flat_by(self):
-        bars = self.bars([(100.2, 100.4, 100.1, 100.3)] * 3, start="15:00")      # 15:00, 15:05, 15:10
-        bars += self.bars([(100.9, 101, 100.8, 100.9)], start="15:25")           # 15:15 and 15:20 missing
-        hit = P.walk(self.row(), bars, self.cfg)
-        self.assertEqual(hit, (100.3, "15:15", "flat-by (data gap)"))
+        bars = self.bars([(100.2, 100.6, 100.1, 100.5)] * 2, start="15:00")
+        bars += self.bars([(100.9, 101, 100.8, 100.9)], start="15:25")
+        hit, _ = P.walk(self.row(), bars, self.cfg)
+        self.assertEqual(hit, (100.5, "15:15", "flat-by (data gap)"))
 
     def test_short_side_mirrors(self):
-        r = self.row(side="short", entry=100, stop=101, target=98)
-        self.assertEqual(P.walk(r, self.bars([(100, 101.5, 99.5, 101)]), self.cfg)[2], "stop")
-        self.assertEqual(P.walk(r, self.bars([(100, 100.5, 97.5, 98)]), self.cfg)[2], "target")
+        r = {"row": {"side": "short", "entry": 100, "stop": 101}}
+        self.assertEqual(self.exit([(100, 101.5, 99.5, 101)], **dict(r))[0][2], "stop")
+        hit, st = self.exit([(100, 100.2, 98.9, 99), (99, 99.1, 97.9, 98)], **dict(r))
+        self.assertIsNone(hit)
+        self.assertAlmostEqual(st["stop"], 98.9)       # trails 1R above the best (lowest) price
+
+
+class Agents(Base):
+    def test_prefill_recheck_refuses_after_bad_news(self):
+        self.ready_plan()
+        C.post("news", C.now_ist("2026-11-10 09:45"), stocks=["TESTCO"], text="probe", source="x",
+               time="2026-11-10T09:45:00+05:30", bearish=True, bullish=False)
+        code, out = self.quiet(P.main, ["open", "--reply", "yes", "--at", "2026-11-10 09:45"])
+        self.assertEqual(code, "DeskError")
+        self.assertIn("bad news", out)
+
+    def test_losing_streak_pauses_and_resume_lifts_it(self):
+        self.write_cfg({"watchlist": ["TESTCO"], "max_loss_per_week": 1000, "max_loss_per_day": 1000,
+                        "max_trades_per_day": 9})
+        J.save([self.journal_row(id=str(i), date="2026-11-09", exit_at="1%d:00" % i, net_pnl=-1) for i in range(3)])
+        self.assertEqual(self.ready_plan()[0], 2)
+        self.quiet(R.main, ["--resume", "--at", "2026-11-10 09:40"])
+        self.assertEqual(self.ready_plan()[0], 0)
+
+    def test_max_open_blocks_second_position(self):
+        self.write_cfg({"watchlist": ["TESTCO"], "max_trades_per_day": 9, "max_loss_per_day": 1000})
+        J.save([self.journal_row(status="open", net_pnl="", max_loss=1, symbol="OTHER")])
+        code, out = self.ready_plan()
+        self.assertEqual(code, 2)
+        self.assertIn("already open", out)
+
+    def test_signal_needs_fresh_bar_and_respects_news_veto(self):
+        cfg = C.load_config()
+        self.assertEqual([e["symbol"] for e in __import__("signals").ideas(cfg, C.now_ist("2026-11-10 09:40"))], ["TESTCO"])
+        self.assertEqual(__import__("signals").ideas(cfg, C.now_ist("2026-11-10 09:50")), [])     # stale
+        C.post("news", C.now_ist("2026-11-10 09:39"), stocks=["TESTCO"], text="probe", source="x",
+               time="2026-11-10T09:39:00+05:30", bearish=True, bullish=False)
+        self.assertEqual(__import__("signals").ideas(cfg, C.now_ist("2026-11-10 09:40")), [])     # vetoed
+
+    def test_signal_respects_brief_avoid_list(self):
+        C.write_json("brief.json", {"date": "2026-11-10", "avoid": [{"symbol": "TESTCO", "why": "results"}]})
+        self.assertEqual(__import__("signals").ideas(C.load_config(), C.now_ist("2026-11-10 09:40")), [])
 
 
 class RandomInvariants(Base):
@@ -292,7 +355,7 @@ class RandomInvariants(Base):
                 c = max(1, o + rng.gauss(0, 0.6))
                 specs.append((o, max(o, c) + abs(rng.gauss(0, 0.3)), min(o, c) - abs(rng.gauss(0, 0.3)), c))
                 px = c
-            hit = P.walk(f.row(), f.bars(specs, start="09:45"), self.cfg)
+            hit, _ = P.walk(f.row(), f.bars(specs, start="09:45"), self.cfg)
             self.assertIsNotNone(hit, "a trade must always be closed by the flat-by time")
             self.assertLessEqual(hit[1], "15:15")
 

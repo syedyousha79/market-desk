@@ -145,14 +145,15 @@ class DeskTest(unittest.TestCase):
         self.assertEqual(code, 3)
         self.assertEqual(J.trades(), [])
 
-    def test_paper_trade_hits_target_and_journals_net(self):
+    def test_paper_trade_trails_and_exits_at_flat_by_with_profit(self):
         self.full_flow_to_open()
-        rows = J.trades()
-        self.assertEqual(rows[0]["status"], "open")
+        self.assertEqual(J.trades()[0]["status"], "open")
         ev = P.update(C.load_config(), C.now_ist("2026-11-10 11:00"))
-        self.assertEqual(len(ev), 1)
+        self.assertEqual([e["kind"] for e in ev], ["trail"])          # stop raised as price ran
+        P.update(C.load_config(), C.now_ist("2026-11-10 15:30"))
         r = J.trades()[0]
-        self.assertEqual(r["exit_reason"], "target")
+        self.assertEqual(r["exit_reason"], "flat-by")
+        self.assertGreater(float(r["net_pnl"]), 0)
         self.assertLess(float(r["net_pnl"]), float(r["gross_pnl"]))
 
     def test_second_trade_same_day_is_blocked(self):
@@ -169,7 +170,7 @@ class DeskTest(unittest.TestCase):
         plan = C.read_json("plan.json")
         plan["qty"] += 5
         C.write_json("plan.json", plan)
-        ok, why = P.ready(plan, self.cfg, C.now_ist("2026-11-10 09:45"))
+        ok, why = P.ready(plan, C.now_ist("2026-11-10 09:45"))
         self.assertFalse(ok)
 
 

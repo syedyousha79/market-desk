@@ -39,8 +39,17 @@ DEFAULTS = {
     "max_loss_per_day": 25,
     "max_loss_per_week": 100,
     "max_trades_per_day": 1,
-    "min_reward_risk": 1.0,         # after charges
-    "target_r": 1.5,                # target = entry + target_r x per-share risk
+    "min_reward_risk": 1.0,         # after charges, measured at the planning target
+    "target_r": 1.5,                # planning target only; exits trail instead of capping profit
+    "max_open": 1,
+    "max_loss_streak": 3,           # pause after this many losses in a row (risk.py --resume)
+    "breakeven_r": 1.0,             # at +1R the stop moves to entry
+    "trail_r": 1.0,                 # then trails 1R behind the best price
+    "time_stop_min": 30, "time_stop_r": 0.5,   # exit if not +0.5R after 30 minutes
+    "stale_data_min": 10,           # exit an open trade if prices stop arriving
+    "in_play_top": 3,               # only the 3 breakouts with the highest relative volume
+    "chase_pct": 1.0,               # skip if price ran >1% past the trigger close
+    "news_veto_hours": 3,
     "no_entries_before": "09:30",
     "no_entries_after": "14:30",
     "flat_by": "15:15",             # ahead of Zerodha's ~15:20 MIS auto square-off
@@ -259,6 +268,37 @@ def charges(buy_value, sell_value, cfg):
     total = brk + stt + exch + sebi + stamp + gst
     return {"brokerage": round(brk, 2), "stt": round(stt, 2), "exchange": round(exch, 2),
             "sebi": round(sebi, 2), "stamp": round(stamp, 2), "gst": round(gst, 2), "total": round(total, 2)}
+
+
+# ---------- message board: how the agents talk ----------
+# Each agent posts short events to trader/bus/<date>.jsonl; the next agent reads them.
+
+def post(kind, at, **data):
+    ev = {"at": at.isoformat(), "kind": kind, **data}
+    path = state_path(os.path.join("bus", at.date().isoformat() + ".jsonl"))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(ev, default=str) + "\n")
+    return ev
+
+
+def events(day, kind=None):
+    path = state_path(os.path.join("bus", day.isoformat() + ".jsonl"))
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as f:
+        evs = [json.loads(line) for line in f if line.strip()]
+    return [e for e in evs if kind is None or e["kind"] == kind]
+
+
+def bad_news(symbol, day, since=None):
+    """Times of bearish news on a symbol today (from the news scout's posts)."""
+    out = []
+    for e in events(day, "news"):
+        t = dt.datetime.fromisoformat(e["time"])
+        if symbol in e.get("stocks", []) and e.get("bearish") and (since is None or t >= since):
+            out.append(t)
+    return sorted(out)
 
 
 def fingerprint(order):

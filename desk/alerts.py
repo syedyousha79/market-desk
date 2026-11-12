@@ -1,12 +1,13 @@
-"""Telegram alerts and the market watcher.
+"""The loop: runs the agents in order and relays their messages to Telegram.
 
-    python desk/alerts.py setup        # finds your chat with the bot and saves its id in .env
-    python desk/alerts.py test         # sends a test message
-    python desk/alerts.py check        # one pass: new breakouts, paper exits, flat-by warning
-    python desk/alerts.py watch        # repeat check every 5 minutes while the market is open
+    python desk/alerts.py setup     # link your Telegram chat (after sending 'hello' to the bot)
+    python desk/alerts.py test      # send a test message
+    python desk/alerts.py check     # one pass now
+    python desk/alerts.py watch     # loop: every minute in market hours, every 15 minutes otherwise
 
-The bot only ever messages the one chat id in .env and never reads commands,
-so strangers who find the bot get nothing. The token stays in .env.
+Each pass: news scout -> signal agent -> position monitor -> flat-by warning,
+then the messenger sends any new message-board posts. The bot only messages the
+chat id in .env and never reads commands. Respects telegram_paused.
 """
 import argparse
 import sys
@@ -15,113 +16,110 @@ import time
 import common as C
 import news as N
 import paper as P
-import scan as S
+import signals as SG
 
 
 def setup():
-    res = C.telegram_api("getUpdates")
     chats = {}
-    for u in res.get("result", []):
-        m = u.get("message") or {}
-        c = m.get("chat") or {}
+    for u in C.telegram_api("getUpdates").get("result", []):
+        c = (u.get("message") or {}).get("chat") or {}
         if c.get("type") == "private":
             chats[c["id"]] = c.get("first_name") or ""
-    if not chats:
-        print("No private chat found. Open your bot in Telegram, press Start, send 'hello', then run setup again.")
-        return 1
-    if len(chats) > 1:
-        print("%d different people have messaged the bot. Run setup right after you send 'hello', or tell Claude." % len(chats))
+    if len(chats) != 1:
+        print("Found %d private chats. Send 'hello' to your bot, then run setup again." % len(chats))
         return 1
     cid = next(iter(chats))
     C.set_env_value("TELEGRAM_CHAT_ID", cid)
-    print("Saved your chat id to .env (name on the chat: %s)." % chats[cid])
+    print("Saved your chat id to .env.")
     return 0
 
 
+def text(e):
+    k = e["kind"]
+    if k == "news":
+        return "NEWS %s: %s (%s)" % (",".join(e["stocks"]) or "MARKET", e["text"][:180], e["source"])
+    if k == "signal":
+        return "IDEA %s ~%s: %s. Ask Claude to plan it." % (e["symbol"], e["entry"], e["why"])
+    if k == "entry":
+        return "PAPER BUY %s x%s @ %s, stop %s, max loss %s" % (e["symbol"], e["qty"], e["price"], e["stop"], C.inr(e["max_loss"]))
+    if k == "trail":
+        return "STOP RAISED %s to %s (best %s): profit protected" % (e["symbol"], e["stop"], e["peak"])
+    if k == "exit":
+        return "PAPER EXIT %s @ %s (%s), net %s" % (e["symbol"], e["price"], e["reason"], C.inr(float(e["net"])))
+    if k == "warn":
+        return e["text"]
+    return None
+
+
 def check(cfg, now, quiet=False):
-    sent = []
-    st = C.read_json("state/alerts.json", {}) or {}
+    st = C.read_json("state/loop.json", {}) or {}
     day = now.date().isoformat()
     if st.get("day") != day:
-        st = {"day": day, "breakouts": [], "flat_warned": False}
-    if C.phase(now, cfg) == "open":
-        # new breakouts
-        hits = []
-        for s in cfg["watchlist"]:
-            try:
-                r = S.orb_for(s, now, cfg)
-            except C.DeskError:
-                continue
-            if r.get("status") == "breakout" and r["symbol"] not in st["breakouts"]:
-                hits.append(r)
-        for r in hits:
-            st["breakouts"].append(r["symbol"])
-            msg = ("ORB %s %s: %s close %s above range %s-%s, volume %sx. Ask Claude to plan it."
-                   % (r["symbol"], r["side"], r["trigger_bar"], r["trigger_close"], r["or_low"], r["or_high"], r["volume_x"]))
-            sent.append(msg)
-        # paper exits
-        for r in P.update(cfg, now):
-            sent.append("PAPER EXIT %s @ %s (%s), net %s" % (r["symbol"], r["exit_price"], r["exit_reason"], C.inr(float(r["net_pnl"]))))
-        # flat-by warning, 10 minutes ahead
-        flat = C.dt.datetime.combine(now.date(), C.hhmm(cfg["flat_by"]), C.IST)
-        if not st["flat_warned"] and flat - C.dt.timedelta(minutes=10) <= now < flat:
-            st["flat_warned"] = True
-            sent.append("Flat-by %s in under 10 minutes: close any intraday positions." % cfg["flat_by"])
-    # news, around the clock, at most every 15 minutes
+        st = {"day": day, "sent": 0, "flat_warned": False}
     last = st.get("news_at")
-    if not last or now - C.dt.datetime.fromisoformat(last) >= C.dt.timedelta(minutes=15):
+    if not last or now - C.dt.datetime.fromisoformat(last) >= C.dt.timedelta(minutes=2 if has_open() else 15):
         st["news_at"] = now.isoformat()
         try:
             for i in N.new_items(cfg, now):
                 if i["stocks"] or cfg.get("news_alert_macro"):
-                    who = ",".join(i["stocks"]) or "MARKET"
-                    text = N.text_of(i)
-                    sent.append("NEWS %s: %s (%s)" % (who, text[:200], i["source"]))
-        except Exception as e:      # news must never break price alerts
+                    C.post("news", now, stocks=i["stocks"], text=N.text_of(i), source=i["source"],
+                           time=i["time"].isoformat(), bearish=i["tone_hint"] == "down?" or "governance" in i["tags"],
+                           bullish=i["tone_hint"] == "up?")
+        except Exception as e:                       # news must never stop the monitor
             if not quiet:
                 print("news skipped: %s" % str(e)[:80])
-    C.write_json("state/alerts.json", st)
-    for m in sent:
-        C.telegram_send(m)
-        if not quiet:
-            print(m)
-    if not sent and not quiet:
-        print("Nothing new (%s, market %s)." % (now.strftime("%H:%M"), C.phase(now, cfg)))
-    return sent
+    if C.phase(now, cfg) == "open":
+        SG.ideas(cfg, now)
+        P.update(cfg, now)
+        flat = C.dt.datetime.combine(now.date(), C.hhmm(cfg["flat_by"]), C.IST)
+        if not st["flat_warned"] and flat - C.dt.timedelta(minutes=10) <= now < flat:
+            st["flat_warned"] = True
+            C.post("warn", now, text="Flat-by %s in under 10 minutes: open trades will be closed." % cfg["flat_by"])
+    evs = C.events(now.date())
+    new, st["sent"] = evs[st["sent"]:], len(evs)
+    C.write_json("state/loop.json", st)
+    for e in new:
+        msg = text(e)
+        if msg:
+            C.telegram_send(msg)
+            if not quiet:
+                print(msg)
+    return new
+
+
+def has_open():
+    import journal as J
+    return any(r["status"] == "open" for r in J.trades())
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("setup")
-    sub.add_parser("test")
+    for n in ("setup", "test", "watch"):
+        sub.add_parser(n)
     sub.add_parser("check").add_argument("--at")
-    w = sub.add_parser("watch")
-    w.add_argument("--every", type=int, default=5, help="minutes between checks")
     a = p.parse_args(argv)
     cfg = C.load_config()
     if a.cmd == "setup":
         return setup()
-    if cfg.get("telegram_paused") and a.cmd in ("test", "watch"):
-        print("Telegram is paused (telegram_paused in trader/config.json). Set it to false when the team is ready.")
+    if cfg.get("telegram_paused") and a.cmd == "test":
+        print("Telegram is paused (telegram_paused in trader/config.json).")
         return 0
     if a.cmd == "test":
-        ok = C.telegram_send("Market Desk is connected. Alerts will arrive here.")
+        ok = C.telegram_send("Market Desk is connected.")
         print("Sent." if ok else "Not sent: run setup first, or check the token in .env.")
         return 0 if ok else 1
     if a.cmd == "check":
         check(cfg, C.now_ist(a.at))
         return 0
-    if a.cmd == "watch":
-        print("Watching every %d minutes. Ctrl+C to stop." % a.every)
-        while True:
-            now = C.now_ist()
-            try:
-                check(cfg, now)
-            except C.DeskError as e:
-                print("check failed: %s" % e)
-            time.sleep(a.every * 60)
-    return 0
+    print("Loop running. Ctrl+C to stop.%s" % (" Telegram is paused; messages print here only." if cfg.get("telegram_paused") else ""))
+    while True:
+        now = C.now_ist()
+        try:
+            check(cfg, now)
+        except C.DeskError as e:
+            print("pass failed: %s" % e)
+        time.sleep(60 if C.phase(now, cfg) == "open" else 900)
 
 
 if __name__ == "__main__":

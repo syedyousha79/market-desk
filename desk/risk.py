@@ -36,7 +36,18 @@ def check(plan, cfg, now):
     lost_today = -sum(min(0.0, float(r["net_pnl"] or 0)) for r in trades if r["date"] == today.isoformat() and r["status"] == "closed")
     lost_week = -sum(min(0.0, float(r["net_pnl"] or 0)) for r in trades
                      if r["date"] >= week_start.isoformat() and r["status"] == "closed")
-    open_risk = sum(float(r["max_loss"] or 0) for r in trades if r["status"] == "open")
+    open_rows = [r for r in trades if r["status"] == "open"]
+    if len(open_rows) >= cfg["max_open"]:
+        reasons.append("%d trade(s) already open (limit %d)" % (len(open_rows), cfg["max_open"]))
+    cleared = (C.read_json("state/pause.json", {}) or {}).get("cleared_at", "")
+    streak = 0
+    for r in reversed([r for r in trades if r["status"] == "closed" and r["date"] + r["exit_at"] > cleared]):
+        if float(r["net_pnl"] or 0) >= 0:
+            break
+        streak += 1
+    if streak >= cfg["max_loss_streak"]:
+        reasons.append("%d losses in a row: paused until reviewed (python desk/risk.py --resume)" % streak)
+    open_risk = sum(float(r["max_loss"] or 0) for r in open_rows)
     room_day = cfg["max_loss_per_day"] - lost_today - open_risk
     room_week = cfg["max_loss_per_week"] - lost_week - open_risk
     if plan["max_loss"] > cfg["max_loss_per_trade"] + 0.005:
@@ -55,9 +66,14 @@ def check(plan, cfg, now):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--at")
+    p.add_argument("--resume", action="store_true", help="lift the losing-streak pause after a review")
     a = p.parse_args(argv)
     cfg = C.load_config()
     now = C.now_ist(a.at)
+    if a.resume:
+        C.write_json("state/pause.json", {"cleared_at": now.date().isoformat() + now.strftime("%H:%M")})
+        print("Losing-streak pause lifted. Earlier losses no longer count toward the streak.")
+        return 0
     plan = C.read_json("plan.json")
     reasons = check(plan, cfg, now)
     verdict = "BLOCK" if reasons else "PASS"
@@ -65,6 +81,8 @@ def main(argv=None):
         plan["risk"] = {"verdict": verdict, "reasons": reasons, "checked_at": now.isoformat(),
                         "fingerprint": C.fingerprint(plan)}
         C.write_json("plan.json", plan)
+        C.post("risk", now, symbol=plan.get("symbol"), verdict=verdict, reasons=reasons, qty=plan.get("qty"),
+               max_loss=plan.get("max_loss"))
     print("%s %s" % (verdict, plan.get("symbol", "") if plan else ""))
     for r in reasons:
         print("  - " + r)

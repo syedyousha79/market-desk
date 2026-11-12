@@ -20,4 +20,6 @@ python desk/scan.py orb --symbols SBIN TMPV
 - Say plainly that a breakout is a setup to look at, not a recommendation.
 - Before 09:30 the range is still forming; say so instead of guessing.
 - Watchlist and limits live in `trader/config.json` (defaults in `desk/common.py`).
-- Next step for a breakout the user likes: `/nse-plan SYMBOL`.
+- `python desk/signals.py` is the signal agent: an idea only when the breakout is fresh, in the day's
+  top 3 by relative volume, not chased, not vetoed by bearish news or the morning brief's avoid list.
+- Next step for an idea the user likes: `/nse-plan SYMBOL`.

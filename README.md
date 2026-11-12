@@ -13,7 +13,9 @@ scan → plan → risk check → your explicit "yes" → paper trade → journal
 | "Plan SBIN" | /nse-plan | `desk/plan.py`, `desk/risk.py` |
 | "Take it" / "How are my trades?" | /nse-paper | `desk/paper.py`, `desk/journal.py` |
 | "What's the news?" | /nse-news + news-rater agent (Haiku) | `desk/news.py` |
-| "Start watching" | /nse-alerts | `desk/alerts.py` |
+| "Any ideas?" | signal agent | `desk/signals.py` |
+| "Morning brief" | morning-brief agent (Sonnet) | writes `trader/brief.json` |
+| "Start watching" | /nse-alerts (the loop) | `desk/alerts.py` |
 
 ## Which model does what
 
@@ -23,8 +25,17 @@ Cheap models do the frequent, simple work; bigger ones only where judgement matt
 |---|---|---|
 | Scanning, sizing, risk checks, paper fills, alerts | none (plain Python) | `desk/` |
 | Rating news impact | Haiku | `.claude/agents/news-rater.md` |
-| Explaining a trade plan, weekly journal review | Sonnet | planned |
+| Morning brief and avoid list | Sonnet | `.claude/agents/morning-brief.md` |
+| Weekly journal review | Sonnet | planned |
 | Deep one-off research | Opus | on request only |
+
+## How the agents talk
+
+They post short events to a message board (`trader/bus/<date>.jsonl`): news -> signal -> risk -> entry
+-> trail/exit. The loop (`alerts.py watch`) runs them in order and relays posts to Telegram.
+Exits: break-even at +1R, then a stop trailing 1R behind the best price, bad-news exit, 30-minute
+time stop, stale-data exit, 15:15 flat-by. Entries always need your yes; exits never do.
+One open trade at a time; 3 losses in a row pauses trading until `python desk/risk.py --resume`.
 
 ## Your limits (defaults, change in `trader/config.json`)
 

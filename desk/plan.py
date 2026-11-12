@@ -80,8 +80,6 @@ def main(argv=None):
              "entry": round(entry, 2), "stop": round(stop, 2), "target": round(target, 2),
              "flat_by": cfg["flat_by"], "product": "MIS", "paper": cfg["paper"],
              "setup": "orb" if hit else "manual", **s}
-    if s["qty"]:
-        order["fingerprint"] = C.fingerprint(order)
     C.write_json("plan.json", order)
 
     print("PLAN %s (%s), %s account" % (sym, order["setup"], "PAPER" if cfg["paper"] else "LIVE"))

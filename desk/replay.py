@@ -72,7 +72,7 @@ def main(argv=None):
     import paper as P
     import plan as PL
     import risk as R
-    import scan as S
+    import signals as SG
 
     cfg = C.load_config()
     days = sorted(C.by_day(cached("^NSEI")).keys())
@@ -94,13 +94,10 @@ def main(argv=None):
         while t <= end:
             stamp = t.strftime("%Y-%m-%d %H:%M")
             P.update(cfg, t)
-            quiet(S.main, ["orb", "--at", stamp])
-            hits = (C.read_json("scan.json", {}) or {}).get("hits", [])
-            fresh = [h for h in hits if (dt.datetime.combine(day, C.hhmm(h["trigger_bar"]), C.IST)
-                                         + dt.timedelta(minutes=C.BAR_MIN)) == t]
-            fresh.sort(key=lambda h: -(h.get("volume_x") or 0))
-            for h in fresh:
+            for h in SG.ideas(cfg, t):
                 signals += 1
+                C.write_json("scan.json", {"hits": [dict(h, trigger_close=h["entry"], side="long",
+                                                         or_mid=round((h["or_low"] + h["or_high"]) / 2, 2))]})
                 code, out = quiet(PL.main, [h["symbol"], "--at", stamp])
                 if code == "error" or "No trade" in out:
                     blocks["too expensive for the loss limit"] = blocks.get("too expensive for the loss limit", 0) + 1
@@ -139,7 +136,7 @@ def main(argv=None):
         print("  no trades taken")
     print()
     end_bal = account + s["net_pnl"]
-    print("Breakout signals seen %d, trades taken %d, wins %d, losses %d"
+    print("Entry ideas %d, trades taken %d, wins %d, losses %d"
           % (signals, s["trades"], s["wins"], s["trades"] - s["wins"]))
     print("Net P&L %s after %s charges -> account %s (%+.2f%%)"
           % (C.inr(s["net_pnl"]), C.inr(s["charges"]), C.inr(end_bal), s["net_pnl"] / account * 100))

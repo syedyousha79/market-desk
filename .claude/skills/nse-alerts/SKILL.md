@@ -9,12 +9,14 @@ description: Telegram alerts for the NSE desk. Connects the user's bot, sends a 
 python desk/alerts.py setup     # after the user sends "hello" to their bot; saves the chat id in .env
 python desk/alerts.py test
 python desk/alerts.py check     # one pass now
-python desk/alerts.py watch     # every 5 minutes; leave it running in a terminal
+python desk/alerts.py watch     # the loop: every minute in market hours, 15 min otherwise
 ```
 
 - The token lives only in `.env`, which the user fills in themselves. Never ask for it, print it,
   or read `.env` back into the chat.
 - The bot only messages the single chat id in `.env` and ignores everyone else.
-- `watch` never places trades. Breakout alerts end with "Ask Claude to plan it".
+- Each pass: news scout -> signal agent -> position monitor, all posting to the message board
+  (trader/bus/); the messenger relays new posts. Respects telegram_paused.
+- `watch` never opens trades; the monitor may close paper trades (exits reduce risk). Breakout alerts end with "Ask Claude to plan it".
 - If `setup` sees more than one private chat, strangers have messaged the bot: ask the user to
   send "hello" again and run setup straight after.

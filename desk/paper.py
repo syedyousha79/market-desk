@@ -1,16 +1,16 @@
-"""Paper broker: turns a PASSed plan into a simulated trade, only on an explicit yes.
+"""Paper broker and position monitor. Entries need your explicit yes; exits never do.
 
-    python desk/paper.py ticket                      # the order in plain words, READY or not
-    python desk/paper.py open --reply "yes"          # the user's reply, word for word
-    python desk/paper.py update [--at ...]           # walk 5-minute bars: stop, target, flat-by
-    python desk/paper.py close RELIANCE              # exit now at the last price
+    python desk/paper.py ticket                     # the order in plain words
+    python desk/paper.py open --reply "yes"         # your reply, word for word
+    python desk/paper.py update [--at ...]          # monitor open trades (the loop runs this)
+    python desk/paper.py close SYMBOL               # exit now at the last price
     python desk/paper.py status
 
-Fills are simulated from Yahoo 5-minute bars: entry at the last closed bar's
-close when you say yes; a bar that touches both stop and target counts as the
-stop; a bar opening past the stop exits at that open; anything still open at
-flat_by exits at that bar's open. Charges are Zerodha intraday rates from config.
-This file never talks to a broker. Live orders are a separate, later step.
+Exit rules, checked every bar in this order (money first, then profit):
+  stop or trailing stop hit -> out | bad news on the stock -> out |
+  prices stopped arriving -> out | no +0.5R after 30 min -> out | 15:15 -> out.
+At +1R the stop moves to break-even, then trails 1R behind the best price, so
+profit can run while the stop only moves up. Fills are simulated from 5-minute bars.
 """
 import argparse
 import re
@@ -20,7 +20,7 @@ import common as C
 import journal as J
 
 
-def ready(plan, cfg, now):
+def ready(plan, now):
     if not plan or not plan.get("qty"):
         return False, "no sized plan"
     risk = plan.get("risk") or {}
@@ -36,97 +36,119 @@ def ready(plan, cfg, now):
 def explicit_yes(reply, symbol, qty=None):
     """True only for a plain yes to this one order. A number in the reply must be the planned quantity."""
     r = reply.strip().lower().rstrip(".!")
-    if "all" in r.split():
+    if "all" in r.split() or any(qty is None or int(n) != int(qty) for n in re.findall(r"\d+", r)):
         return False
-    for n in re.findall(r"\d+", r):
-        if qty is None or int(n) != int(qty):
-            return False
-    other = re.findall(r"[a-z&]{2,}", r)
     allowed = {"yes", "buy", "sell", "place", "it", "go", "ahead", "shares", symbol.lower()}
-    return bool(re.match(r"^(yes|y)\b", r)) and all(w in allowed for w in other)
+    return bool(re.match(r"^(yes|y)\b", r)) and all(w in allowed for w in re.findall(r"[a-z&]{2,}", r))
 
 
-def ticket(plan, cfg, now):
-    ok, why = ready(plan, cfg, now)
-    if not plan or not plan.get("qty"):
-        return "No order to show: %s." % why
-    lines = ["ORDER, %s account, Zerodha MIS (intraday)" % ("PAPER" if plan["paper"] else "LIVE"),
-             "  %s %d %s at market (~%s)" % ("BUY" if plan["side"] == "long" else "SELL", plan["qty"], plan["symbol"], plan["entry"]),
-             "  stop-loss %s, target %s, out by %s" % (plan["stop"], plan["target"], plan["flat_by"]),
-             "  max loss about %s at the stop, charges included (a fast market can fill worse)" % C.inr(plan["max_loss"]),
-             "  " + why]
-    return "\n".join(lines)
+def walk(row, bars, cfg, news_times=()):
+    """Monitor bars after entry. Returns (exit or None, state) with exit = (price, 'HH:MM', reason)."""
+    entry, stop0 = float(row["entry"]), float(row["stop"])
+    s = 1 if row["side"] == "long" else -1
+    R = abs(entry - stop0)
+    stop, peak, prev = stop0, entry, None
+    flat = C.hhmm(row.get("flat_by") or cfg["flat_by"])
+    news = list(news_times)
+    for i, b in enumerate(bars):
+        t = b["t"].strftime("%H:%M")
+        state = {"stop": round(stop, 2), "peak": round(peak, 2)}
+        if b["t"].time() >= flat:
+            if b["t"].time() > flat and prev:            # feed skipped the flat-by bar
+                return (prev["c"], flat.strftime("%H:%M"), "flat-by (data gap)"), state
+            return (b["o"], t, "flat-by"), state
+        if news and b["t"] >= news[0]:
+            return (b["o"], t, "bad news"), state
+        label = "stop" if stop == stop0 else ("break-even stop" if stop == entry else "trailing stop")
+        if (b["o"] - stop) * s <= 0:
+            return (b["o"], t, label + " (gap)"), state
+        if ((b["l"] if s == 1 else b["h"]) - stop) * s <= 0:
+            return (stop, t, label), state
+        peak = max(peak, b["h"]) if s == 1 else min(peak, b["l"])
+        gain = (peak - entry) * s
+        if gain >= cfg["breakeven_r"] * R:
+            new = max(entry * s, (peak - s * cfg["trail_r"] * R) * s) * s
+            stop = max(stop, new) if s == 1 else min(stop, new)
+        if (i + 1) * C.BAR_MIN == cfg["time_stop_min"] and gain < cfg["time_stop_r"] * R:
+            return (b["c"], t, "time stop"), {"stop": round(stop, 2), "peak": round(peak, 2)}
+        prev = b
+    return None, {"stop": round(stop, 2), "peak": round(peak, 2)}
 
 
-def last_price(symbol, now):
+def close_row(row, price, when, reason, cfg):
+    qty, entry = int(row["qty"]), float(row["entry"])
+    buy, sell = (entry, price) if row["side"] == "long" else (price, entry)
+    ch = C.charges(qty * buy, qty * sell, cfg)["total"]
+    row.update(status="closed", exit_price=round(price, 2), exit_at=when, exit_reason=reason,
+               gross_pnl=round(qty * (sell - buy), 2), charges=ch, net_pnl=round(qty * (sell - buy) - ch, 2))
+
+
+def update(cfg, now):
+    """One monitor pass: exits and stop raises, each posted to the message board."""
+    rows, events = J.trades(), []
+    for row in rows:
+        if row["status"] != "open":
+            continue
+        day = C.dt.date.fromisoformat(row["date"])
+        bars = C.closed_bars(C.by_day(C.fetch_bars(row["symbol"], "5d", "5m")).get(day, []), now)
+        opened = C.dt.datetime.combine(day, C.hhmm(row["opened_at"]), C.IST)
+        after = [b for b in bars if b["t"] >= opened]
+        hit, state = walk(row, after, cfg, C.bad_news(row["symbol"], day, opened))
+        if hit is None and bars and C.phase(now, cfg) == "open" and \
+                now - (bars[-1]["t"] + C.dt.timedelta(minutes=C.BAR_MIN)) > C.dt.timedelta(minutes=cfg["stale_data_min"]):
+            hit = (bars[-1]["c"], now.strftime("%H:%M"), "prices stopped arriving")
+        if hit is None and now.date() > day and bars:
+            hit = (bars[-1]["c"], bars[-1]["t"].strftime("%H:%M"), "session end")
+        if hit:
+            close_row(row, *hit, cfg)
+            events.append(C.post("exit", now, symbol=row["symbol"], price=row["exit_price"], reason=row["exit_reason"],
+                                 net=row["net_pnl"], charges=row["charges"]))
+        elif state["stop"] != float(row.get("cur_stop") or row["stop"]):
+            row["cur_stop"] = state["stop"]
+            events.append(C.post("trail", now, symbol=row["symbol"], stop=state["stop"], peak=state["peak"]))
+    if events:
+        J.save(rows)
+    return events
+
+
+def last_bar(symbol, now):
     bars = C.closed_bars(C.fetch_bars(symbol, "1d", "5m"), now)
     if not bars:
         raise C.DeskError("no closed bar yet for %s" % symbol)
     return bars[-1]
 
 
-def close_row(row, price, when, reason, cfg):
-    qty = int(row["qty"])
-    entry = float(row["entry"])
-    long_ = row["side"] == "long"
-    buy, sell = (entry, price) if long_ else (price, entry)
-    gross = qty * (sell - buy)
-    ch = C.charges(qty * buy, qty * sell, cfg)["total"]
-    row.update(status="closed", exit_price=round(price, 2), exit_at=when, exit_reason=reason,
-               gross_pnl=round(gross, 2), charges=ch, net_pnl=round(gross - ch, 2))
-    return row
-
-
-def walk(row, bars, cfg):
-    """Return (price, 'HH:MM', reason) for the first exit in these bars, or None."""
-    stop, target = float(row["stop"]), float(row["target"])
-    flat = C.hhmm(row.get("flat_by") or cfg["flat_by"])
-    long_ = row["side"] == "long"
-    prev = None
-    for b in bars:
-        t = b["t"].strftime("%H:%M")
-        if b["t"].time() >= flat:
-            if b["t"].time() > flat and prev is not None:
-                # the feed skipped the flat-by bar; you would have been out at flat_by at about the last price
-                return prev["c"], flat.strftime("%H:%M"), "flat-by (data gap)"
-            return b["o"], t, "flat-by"
-        prev = b
-        if long_:
-            if b["o"] <= stop:
-                return b["o"], t, "stop (gap)"
-            if b["l"] <= stop:
-                return stop, t, "stop"
-            if b["h"] >= target:
-                return (b["o"] if b["o"] >= target else target), t, "target"
-        else:
-            if b["o"] >= stop:
-                return b["o"], t, "stop (gap)"
-            if b["h"] >= stop:
-                return stop, t, "stop"
-            if b["l"] <= target:
-                return (b["o"] if b["o"] <= target else target), t, "target"
-    return None
-
-
-def update(cfg, now):
+def open_trade(plan, reply, cfg, now):
+    ok, why = ready(plan, now)
+    if not ok:
+        raise C.DeskError("not placed: " + why)
+    if not plan["paper"]:
+        raise C.DeskError("config is live; this broker only simulates. Live orders go through Kite with their own approval.")
+    if not explicit_yes(reply, plan["symbol"], plan["qty"]):
+        return None
+    made = C.dt.datetime.combine(now.date(), C.hhmm(plan["made_at"]), C.IST)
+    if C.bad_news(plan["symbol"], now.date(), made):           # re-check: news changed after the plan
+        raise C.DeskError("bad news on %s since the plan; not placed. Plan again if you still want it." % plan["symbol"])
     rows = J.trades()
-    events = []
-    for row in rows:
-        if row["status"] != "open":
-            continue
-        bars = C.closed_bars(C.by_day(C.fetch_bars(row["symbol"], "5d", "5m")).get(
-            C.dt.date.fromisoformat(row["date"]), []), now)
-        opened = C.hhmm(row["opened_at"])
-        after = [b for b in bars if b["t"].time() >= opened]
-        hit = walk(row, after, cfg)
-        if hit is None and now.date().isoformat() > row["date"]:
-            hit = (bars[-1]["c"], bars[-1]["t"].strftime("%H:%M"), "session end") if bars else None
-        if hit:
-            close_row(row, hit[0], hit[1], hit[2], cfg)
-            events.append(row)
-    if events:
-        J.save(rows)
-    return events
+    if any(r["status"] == "open" and r["symbol"] == plan["symbol"] for r in rows):
+        raise C.DeskError("%s already has an open paper trade" % plan["symbol"])
+    bar = last_bar(plan["symbol"], now)
+    px, long_ = bar["c"], plan["side"] == "long"
+    if (px - plan["stop"]) * (1 if long_ else -1) <= 0:
+        raise C.DeskError("price %s is already past the stop %s; plan again" % (px, plan["stop"]))
+    qty = plan["qty"]
+    buy, sell = (px, plan["stop"]) if long_ else (plan["stop"], px)
+    row = {"id": "%s-%s-%d" % (plan["date"], plan["symbol"], len(rows) + 1), "date": plan["date"],
+           "symbol": plan["symbol"], "side": plan["side"], "qty": qty, "entry": round(px, 2),
+           "stop": plan["stop"], "cur_stop": plan["stop"], "target": plan["target"],
+           "max_loss": round(qty * abs(px - plan["stop"]) + C.charges(qty * buy, qty * sell, cfg)["total"], 2),
+           "opened_at": (bar["t"] + C.dt.timedelta(minutes=C.BAR_MIN)).strftime("%H:%M"),
+           "status": "open", "setup": plan.get("setup"), "paper": "true", "reply": reply}
+    J.save(rows + [row])
+    plan["risk"]["verdict"] = "USED"
+    C.write_json("plan.json", plan)
+    C.post("entry", now, symbol=row["symbol"], qty=qty, price=row["entry"], stop=row["stop"], max_loss=row["max_loss"])
+    return row
 
 
 def main(argv=None):
@@ -141,72 +163,48 @@ def main(argv=None):
     c.add_argument("symbol")
     c.add_argument("--at")
     a = p.parse_args(argv)
-    cfg = C.load_config()
-    now = C.now_ist(a.at)
-    plan = C.read_json("plan.json")
+    cfg, now, plan = C.load_config(), C.now_ist(a.at), C.read_json("plan.json")
 
     if a.cmd == "ticket":
-        print(ticket(plan, cfg, now))
+        ok, why = ready(plan, now)
+        if not plan or not plan.get("qty"):
+            print("No order to show: %s." % why)
+        else:
+            print("ORDER, %s account, Zerodha MIS (intraday)\n  BUY %d %s at market (~%s)\n  stop-loss %s, then"
+                  " break-even at +1R and a trailing stop; out by %s\n  max loss about %s at the stop, charges"
+                  " included (a fast market can fill worse)\n  %s"
+                  % ("PAPER" if plan["paper"] else "LIVE", plan["qty"], plan["symbol"], plan["entry"], plan["stop"],
+                     plan["flat_by"], C.inr(plan["max_loss"]), why))
     elif a.cmd == "open":
-        ok, why = ready(plan, cfg, now)
-        if not ok:
-            raise C.DeskError("not placed: " + why)
-        if not plan["paper"]:
-            raise C.DeskError("config is set to live; this paper broker only simulates. Live orders go through Kite with their own approval.")
-        if not explicit_yes(a.reply, plan["symbol"], plan["qty"]):
+        row = open_trade(plan, a.reply, cfg, now)
+        if row is None:
             print("Not recorded: %r is not an explicit yes for this one order. Ask again." % a.reply)
             return 3
-        rows = J.trades()
-        if any(r["status"] == "open" and r["symbol"] == plan["symbol"] for r in rows):
-            raise C.DeskError("%s already has an open paper trade" % plan["symbol"])
-        bar = last_price(plan["symbol"], now)
-        px = bar["c"]
-        long_ = plan["side"] == "long"
-        if (long_ and px <= plan["stop"]) or (not long_ and px >= plan["stop"]):
-            raise C.DeskError("price %s is already past the stop %s; plan again" % (px, plan["stop"]))
-        qty = plan["qty"]
-        buy, sell = (px, plan["stop"]) if long_ else (plan["stop"], px)
-        max_loss = qty * abs(px - plan["stop"]) + C.charges(qty * buy, qty * sell, cfg)["total"]
-        row = {"id": "%s-%s-%d" % (plan["date"], plan["symbol"], len(rows) + 1), "date": plan["date"],
-               "symbol": plan["symbol"], "side": plan["side"], "qty": qty, "entry": round(px, 2),
-               "stop": plan["stop"], "target": plan["target"], "max_loss": round(max_loss, 2),
-               "opened_at": (bar["t"] + C.dt.timedelta(minutes=C.BAR_MIN)).strftime("%H:%M"),
-               "status": "open", "setup": plan.get("setup"), "paper": "true", "reply": a.reply}
-        rows.append(row)
-        J.save(rows)
-        plan["risk"]["verdict"] = "USED"
-        C.write_json("plan.json", plan)
-        msg = "PAPER %s %d %s @ %s | stop %s | target %s | max loss %s" % (
-            "BUY" if long_ else "SELL", qty, plan["symbol"], row["entry"], plan["stop"], plan["target"], C.inr(max_loss))
-        print("Recorded your yes. " + msg)
-        C.telegram_send(msg)
+        print("Recorded your yes. PAPER BUY %s %s @ %s, stop %s, max loss %s"
+              % (row["qty"], row["symbol"], row["entry"], row["stop"], C.inr(row["max_loss"])))
     elif a.cmd == "update":
         ev = update(cfg, now)
-        for r in ev:
-            msg = "PAPER EXIT %s %s @ %s (%s) | net %s after %s charges" % (
-                r["symbol"], r["side"], r["exit_price"], r["exit_reason"], C.inr(float(r["net_pnl"])), C.inr(float(r["charges"])))
-            print(msg)
-            C.telegram_send(msg)
+        for e in ev:
+            print(e)
         if not ev:
-            print("No exits.")
+            print("No changes.")
     elif a.cmd == "close":
-        rows = J.trades()
-        sym = C.plain(C.yahoo_symbol(a.symbol))
+        rows, sym = J.trades(), C.plain(C.yahoo_symbol(a.symbol))
         for r in rows:
             if r["status"] == "open" and r["symbol"] == sym:
-                bar = last_price(sym, now)
-                close_row(r, bar["c"], now.strftime("%H:%M"), "manual", cfg)
+                close_row(r, last_bar(sym, now)["c"], now.strftime("%H:%M"), "manual", cfg)
                 J.save(rows)
+                C.post("exit", now, symbol=sym, price=r["exit_price"], reason="manual", net=r["net_pnl"], charges=r["charges"])
                 print("Closed %s @ %s, net %s" % (sym, r["exit_price"], C.inr(float(r["net_pnl"]))))
                 return 0
         raise C.DeskError("no open paper trade in %s" % sym)
-    elif a.cmd == "status":
+    else:
         s = J.summary()
         print("Open %d | closed %d | win rate %s%% | net %s after %s charges"
               % (s["open"], s["trades"], s["win_rate"] if s["win_rate"] is not None else "-", C.inr(s["net_pnl"]), C.inr(s["charges"])))
         for r in J.trades():
             if r["status"] == "open":
-                print("  OPEN %s %s %s @ %s stop %s target %s" % (r["symbol"], r["side"], r["qty"], r["entry"], r["stop"], r["target"]))
+                print("  OPEN %s %s @ %s, stop now %s" % (r["qty"], r["symbol"], r["entry"], r.get("cur_stop") or r["stop"]))
     return 0
 
 
