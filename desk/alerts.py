@@ -13,6 +13,7 @@ import sys
 import time
 
 import common as C
+import news as N
 import paper as P
 import scan as S
 
@@ -66,6 +67,19 @@ def check(cfg, now, quiet=False):
         if not st["flat_warned"] and flat - C.dt.timedelta(minutes=10) <= now < flat:
             st["flat_warned"] = True
             sent.append("Flat-by %s in under 10 minutes: close any intraday positions." % cfg["flat_by"])
+    # news, around the clock, at most every 15 minutes
+    last = st.get("news_at")
+    if not last or now - C.dt.datetime.fromisoformat(last) >= C.dt.timedelta(minutes=15):
+        st["news_at"] = now.isoformat()
+        try:
+            for i in N.new_items(cfg, now):
+                if i["stocks"] or cfg.get("news_alert_macro"):
+                    who = ",".join(i["stocks"]) or "MARKET"
+                    text = N.text_of(i)
+                    sent.append("NEWS %s: %s (%s)" % (who, text[:200], i["source"]))
+        except Exception as e:      # news must never break price alerts
+            if not quiet:
+                print("news skipped: %s" % str(e)[:80])
     C.write_json("state/alerts.json", st)
     for m in sent:
         C.telegram_send(m)

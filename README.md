@@ -12,7 +12,19 @@ scan → plan → risk check → your explicit "yes" → paper trade → journal
 | "How's the market? Any breakouts?" | /nse-scan | `desk/scan.py` |
 | "Plan SBIN" | /nse-plan | `desk/plan.py`, `desk/risk.py` |
 | "Take it" / "How are my trades?" | /nse-paper | `desk/paper.py`, `desk/journal.py` |
+| "What's the news?" | /nse-news + news-rater agent (Haiku) | `desk/news.py` |
 | "Start watching" | /nse-alerts | `desk/alerts.py` |
+
+## Which model does what
+
+Cheap models do the frequent, simple work; bigger ones only where judgement matters.
+
+| Job | Model | Where |
+|---|---|---|
+| Scanning, sizing, risk checks, paper fills, alerts | none (plain Python) | `desk/` |
+| Rating news impact | Haiku | `.claude/agents/news-rater.md` |
+| Explaining a trade plan, weekly journal review | Sonnet | planned |
+| Deep one-off research | Opus | on request only |
 
 ## Your limits (defaults, change in `trader/config.json`)
 
@@ -25,6 +37,7 @@ Copy `desk/config.example.json` to `trader/config.json` to change anything.
 1. Python 3.8+ (no packages needed).
 2. Telegram: put your bot token in `.env`, send "hello" to the bot, run `python desk/alerts.py setup`.
 3. Tests: `python -m unittest discover -s tests -v`
+4. Alerts: `python desk/alerts.py watch` sends breakouts, paper exits, the flat-by warning and watchlist news.
 
 ## Data and caveats
 

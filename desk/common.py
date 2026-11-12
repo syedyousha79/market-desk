@@ -47,12 +47,15 @@ DEFAULTS = {
     "or_minutes": 15,               # opening range 09:15-09:30
     "volume_multiple": 1.5,
     "allow_short": False,
+    "news_alert_macro": False,      # True also sends market-wide headlines (busy)
     "holidays": [],                 # "YYYY-MM-DD" NSE trading holidays; fill from nseindia.com
     "watchlist": [
         "RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "SBIN", "AXISBANK",
         "KOTAKBANK", "LT", "ITC", "BHARTIARTL", "TMPV", "MARUTI", "SUNPHARMA",
         "BAJFINANCE", "HINDUNILVR", "M&M", "TATASTEEL", "NTPC", "LICI",
     ],
+    # Model per job when agents run: cheap models for simple, frequent work.
+    "models": {"news_rating": "haiku", "trade_explainer": "sonnet", "weekly_review": "sonnet", "hard_research": "opus"},
     "context": ["^NSEI", "^NSEBANK", "^INDIAVIX"],
     # Zerodha equity intraday charges as fractions. Check zerodha.com/charges and update.
     "charges": {
