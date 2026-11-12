@@ -68,7 +68,7 @@ class Base(unittest.TestCase):
         row.update(kw)
         return row
 
-    def ready_plan(self, at="2026-11-10 09:45"):
+    def ready_plan(self, at="2026-11-10 09:40"):
         self.quiet(S.main, ["orb", "--at", at])
         self.quiet(PL.main, ["TESTCO", "--at", at])
         return self.quiet(R.main, ["--at", at])
@@ -105,7 +105,7 @@ class BadData(Base):
 
     def test_scan_survives_bad_symbols_in_watchlist(self):
         self.write_cfg({"watchlist": ["TESTCO", "NOFILE", "  ", "testco"]})
-        code, out = self.quiet(S.main, ["orb", "--at", "2026-11-10 09:45"])
+        code, out = self.quiet(S.main, ["orb", "--at", "2026-11-10 09:40"])
         self.assertIn("BREAKOUT TESTCO", out)
         self.assertIn("skipped", out)
 
@@ -133,15 +133,15 @@ class BrokenFiles(Base):
     def test_corrupt_plan_json_is_a_clear_error(self):
         with open(os.path.join(C.TRADER, "plan.json"), "w") as f:
             f.write("{not json")
-        code, out = self.quiet(R.main, ["--at", "2026-11-10 09:45"])
+        code, out = self.quiet(R.main, ["--at", "2026-11-10 09:40"])
         self.assertEqual(code, "DeskError")
 
     def test_corrupt_journal_blocks_instead_of_passing(self):
         with open(J.path(), "w") as f:
             f.write("garbage,,,\n\x00\x01 nonsense\n")
-        self.quiet(S.main, ["orb", "--at", "2026-11-10 09:45"])
-        self.quiet(PL.main, ["TESTCO", "--at", "2026-11-10 09:45"])
-        code, out = self.quiet(R.main, ["--at", "2026-11-10 09:45"])
+        self.quiet(S.main, ["orb", "--at", "2026-11-10 09:40"])
+        self.quiet(PL.main, ["TESTCO", "--at", "2026-11-10 09:40"])
+        code, out = self.quiet(R.main, ["--at", "2026-11-10 09:40"])
         self.assertNotEqual(code, 0, "a journal that cannot be read must never give a PASS")
 
     def test_journal_with_blank_numbers(self):
@@ -166,28 +166,38 @@ class HostileReplies(Base):
         for r in bad:
             self.assertFalse(P.explicit_yes(r, "TESTCO", qty=14), repr(r))
 
+    def test_yes_must_match_the_side(self):
+        self.assertFalse(P.explicit_yes("yes sell", "TESTCO", qty=14, side="long"))
+        self.assertTrue(P.explicit_yes("yes sell", "TESTCO", qty=14, side="short"))
+
+    def test_open_refused_after_entry_window(self):
+        self.ready_plan()
+        code, out = self.quiet(P.main, ["open", "--reply", "yes", "--at", "2026-11-10 15:00"])
+        self.assertEqual(code, "DeskError")
+        self.assertIn("entry window", out)
+
     def test_reply_naming_the_right_quantity_is_fine(self):
         self.assertTrue(P.explicit_yes("yes buy 14 TESTCO", "TESTCO", qty=14))
         self.assertFalse(P.explicit_yes("yes buy 15 TESTCO", "TESTCO", qty=14))
 
     def test_double_open_same_symbol_blocked(self):
         self.ready_plan()
-        self.quiet(P.main, ["open", "--reply", "yes", "--at", "2026-11-10 09:45"])
-        code, out = self.quiet(P.main, ["open", "--reply", "yes", "--at", "2026-11-10 09:45"])
+        self.quiet(P.main, ["open", "--reply", "yes", "--at", "2026-11-10 09:40"])
+        code, out = self.quiet(P.main, ["open", "--reply", "yes", "--at", "2026-11-10 09:40"])
         self.assertEqual(code, "DeskError")
         self.assertEqual(len(J.trades()), 1)
 
     def test_live_mode_refuses_paper_open(self):
         self.write_cfg({"watchlist": ["TESTCO"], "paper": False})
         self.ready_plan()
-        code, out = self.quiet(P.main, ["open", "--reply", "yes", "--at", "2026-11-10 09:45"])
+        code, out = self.quiet(P.main, ["open", "--reply", "yes", "--at", "2026-11-10 09:40"])
         self.assertEqual(code, "DeskError")
 
 
 class Boundaries(Base):
     def verdict_at(self, t):
-        self.quiet(S.main, ["orb", "--at", "2026-11-10 09:45"])
-        self.quiet(PL.main, ["TESTCO", "--at", "2026-11-10 09:45"])
+        self.quiet(S.main, ["orb", "--at", "2026-11-10 09:40"])
+        self.quiet(PL.main, ["TESTCO", "--at", "2026-11-10 09:40"])
         code, out = self.quiet(R.main, ["--at", "2026-11-10 " + t])
         return code
 
@@ -261,6 +271,12 @@ class Fills(Base):
         self.assertAlmostEqual(row["gross_pnl"], 5 * 2.0 + 5 * (hit[0] - 100), places=2)
         self.assertGreater(row["charges"], 0)
 
+    def test_time_stop_uses_clock_minutes_with_missing_bar(self):
+        bars = self.bars([(100, 100.3, 99.8, 100.1)] * 13)
+        del bars[3]                                    # one bar missing in the first hour
+        hit, _ = P.walk(self.row(), bars, self.cfg)
+        self.assertEqual((hit[1], hit[2]), ("10:55", "time stop"))
+
     def test_no_partial_with_one_share(self):
         _, st = P.walk(dict(self.row(), qty=1), self.bars([(100, 102.1, 99.9, 102)]), self.cfg)
         self.assertIsNone(st["partial"])
@@ -292,9 +308,9 @@ class Fills(Base):
 class Agents(Base):
     def test_prefill_recheck_refuses_after_bad_news(self):
         self.ready_plan()
-        C.post("news", C.now_ist("2026-11-10 09:45"), stocks=["TESTCO"], text="probe", source="x",
+        C.post("news", C.now_ist("2026-11-10 09:40"), stocks=["TESTCO"], text="probe", source="x",
                time="2026-11-10T09:45:00+05:30", bearish=True, bullish=False)
-        code, out = self.quiet(P.main, ["open", "--reply", "yes", "--at", "2026-11-10 09:45"])
+        code, out = self.quiet(P.main, ["open", "--reply", "yes", "--at", "2026-11-10 09:40"])
         self.assertEqual(code, "DeskError")
         self.assertIn("bad news", out)
 
@@ -383,7 +399,7 @@ class Scale(Base):
                 f.write(body)
         self.write_cfg({"watchlist": syms})
         t = time.time()
-        code, out = self.quiet(S.main, ["orb", "--at", "2026-11-10 09:45"])
+        code, out = self.quiet(S.main, ["orb", "--at", "2026-11-10 09:40"])
         self.assertLess(time.time() - t, 10)
         self.assertIn("200 breakout(s)", out)
 

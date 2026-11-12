@@ -33,12 +33,12 @@ def ready(plan, now):
     return True, "READY: risk PASS, waiting for your yes"
 
 
-def explicit_yes(reply, symbol, qty=None):
+def explicit_yes(reply, symbol, qty=None, side="long"):
     """True only for a plain yes to this one order. A number in the reply must be the planned quantity."""
     r = reply.strip().lower().rstrip(".!")
     if "all" in r.split() or any(qty is None or int(n) != int(qty) for n in re.findall(r"\d+", r)):
         return False
-    allowed = {"yes", "buy", "sell", "place", "it", "go", "ahead", "shares", symbol.lower()}
+    allowed = {"yes", "buy" if side == "long" else "sell", "place", "it", "go", "ahead", "shares", symbol.lower()}
     return bool(re.match(r"^(yes|y)\b", r)) and all(w in allowed for w in re.findall(r"[a-z&]{2,}", r))
 
 
@@ -47,7 +47,7 @@ def walk(row, bars, cfg, news_times=()):
     entry, stop0 = float(row["entry"]), float(row["stop"])
     s = 1 if row["side"] == "long" else -1
     R = abs(entry - stop0)
-    stop, peak, prev, partial = stop0, entry, None, None
+    stop, peak, prev, partial, timed = stop0, entry, None, None, False
     flat = C.hhmm(row.get("flat_by") or cfg["flat_by"])
     news = list(news_times)
 
@@ -75,8 +75,11 @@ def walk(row, bars, cfg, news_times=()):
         if gain >= cfg["breakeven_r"] * R:
             new = max(entry * s, (peak - s * cfg["trail_r"] * R) * s) * s
             stop = max(stop, new) if s == 1 else min(stop, new)
-        if (i + 1) * C.BAR_MIN == cfg["time_stop_min"] and gain < cfg["time_stop_r"] * R:
-            return (b["c"], t, "time stop"), st()
+        elapsed = (b["t"] - bars[0]["t"]).total_seconds() / 60 + C.BAR_MIN
+        if not timed and elapsed >= cfg["time_stop_min"]:
+            timed = True
+            if gain < cfg["time_stop_r"] * R:
+                return (b["c"], t, "time stop"), st()
         prev = b
     return None, st()
 
@@ -110,6 +113,9 @@ def update(cfg, now):
         if hit is None and bars and C.phase(now, cfg) == "open" and \
                 now - (bars[-1]["t"] + C.dt.timedelta(minutes=C.BAR_MIN)) > C.dt.timedelta(minutes=cfg["stale_data_min"]):
             hit = (bars[-1]["c"], now.strftime("%H:%M"), "prices stopped arriving")
+        flat = C.hhmm(row.get("flat_by") or cfg["flat_by"])
+        if hit is None and bars and (now.date() > day or now.time() >= flat) and bars[-1]["t"].time() < flat:
+            hit = (bars[-1]["c"], flat.strftime("%H:%M"), "flat-by (data gap)")
         if hit is None and now.date() > day and bars:
             hit = (bars[-1]["c"], bars[-1]["t"].strftime("%H:%M"), "session end")
         if state["partial"] and not row.get("partial_qty"):
@@ -140,8 +146,10 @@ def open_trade(plan, reply, cfg, now):
         raise C.DeskError("not placed: " + why)
     if not plan["paper"]:
         raise C.DeskError("config is live; this broker only simulates. Live orders go through Kite with their own approval.")
-    if not explicit_yes(reply, plan["symbol"], plan["qty"]):
+    if not explicit_yes(reply, plan["symbol"], plan["qty"], plan["side"]):
         return None
+    if not C.hhmm(cfg["no_entries_before"]) <= now.time() <= C.hhmm(cfg["no_entries_after"]):
+        raise C.DeskError("outside the entry window %s-%s; not placed" % (cfg["no_entries_before"], cfg["no_entries_after"]))
     made = C.dt.datetime.combine(now.date(), C.hhmm(plan["made_at"]), C.IST)
     if C.bad_news(plan["symbol"], now.date(), made):           # re-check: news changed after the plan
         raise C.DeskError("bad news on %s since the plan; not placed. Plan again if you still want it." % plan["symbol"])
@@ -160,6 +168,9 @@ def open_trade(plan, reply, cfg, now):
            "max_loss": round(qty * abs(px - plan["stop"]) + C.charges(qty * buy, qty * sell, cfg)["total"], 2),
            "opened_at": (bar["t"] + C.dt.timedelta(minutes=C.BAR_MIN)).strftime("%H:%M"),
            "status": "open", "setup": plan.get("setup"), "paper": "true", "reply": reply}
+    if row["max_loss"] > cfg["max_loss_per_trade"] + 0.005:
+        raise C.DeskError("price moved to %s: loss at the stop would be %s, over the %s limit; plan again"
+                          % (px, C.inr(row["max_loss"]), C.inr(cfg["max_loss_per_trade"])))
     J.save(rows + [row])
     plan["risk"]["verdict"] = "USED"
     C.write_json("plan.json", plan)
@@ -179,7 +190,7 @@ def main(argv=None):
     c.add_argument("symbol")
     c.add_argument("--at")
     a = p.parse_args(argv)
-    cfg, now, plan = C.load_config(), C.now_ist(a.at), C.read_json("plan.json")
+    cfg, now, plan = C.with_money(C.load_config()), C.now_ist(a.at), C.read_json("plan.json")
 
     if a.cmd == "ticket":
         ok, why = ready(plan, now)

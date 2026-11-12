@@ -96,7 +96,7 @@ class DeskTest(unittest.TestCase):
     def test_orb_waits_for_range_then_finds_breakout(self):
         early = S.orb_for("TESTCO", C.now_ist("2026-11-10 09:25"), self.cfg)
         self.assertEqual(early["status"], "opening range still forming")
-        r = S.orb_for("TESTCO", C.now_ist("2026-11-10 09:45"), self.cfg)
+        r = S.orb_for("TESTCO", C.now_ist("2026-11-10 09:40"), self.cfg)
         self.assertEqual(r["status"], "breakout")
         self.assertEqual(r["trigger_bar"], "09:35")
         self.assertEqual((r["or_low"], r["or_high"]), (100, 102))
@@ -123,25 +123,25 @@ class DeskTest(unittest.TestCase):
         self.assertFalse(P.explicit_yes("yes SBIN", "TESTCO"))
 
     def full_flow_to_open(self):
-        self.run_quiet(S.main, ["orb", "--at", "2026-11-10 09:45"])
-        self.run_quiet(PL.main, ["TESTCO", "--at", "2026-11-10 09:45"])
-        code, out = self.run_quiet(R.main, ["--at", "2026-11-10 09:45"])
+        self.run_quiet(S.main, ["orb", "--at", "2026-11-10 09:40"])
+        self.run_quiet(PL.main, ["TESTCO", "--at", "2026-11-10 09:40"])
+        code, out = self.run_quiet(R.main, ["--at", "2026-11-10 09:40"])
         self.assertEqual(code, 0, out)
-        code, out = self.run_quiet(P.main, ["open", "--reply", "yes", "--at", "2026-11-10 09:45"])
+        code, out = self.run_quiet(P.main, ["open", "--reply", "yes", "--at", "2026-11-10 09:40"])
         self.assertEqual(code, 0, out)
 
     def test_risk_blocks_before_entry_window(self):
-        self.run_quiet(S.main, ["orb", "--at", "2026-11-10 09:45"])
-        self.run_quiet(PL.main, ["TESTCO", "--at", "2026-11-10 09:45"])
+        self.run_quiet(S.main, ["orb", "--at", "2026-11-10 09:40"])
+        self.run_quiet(PL.main, ["TESTCO", "--at", "2026-11-10 09:40"])
         code, out = self.run_quiet(R.main, ["--at", "2026-11-10 09:20"])
         self.assertEqual(code, 2)
         self.assertIn("entry window", out)
 
     def test_open_needs_yes(self):
-        self.run_quiet(S.main, ["orb", "--at", "2026-11-10 09:45"])
-        self.run_quiet(PL.main, ["TESTCO", "--at", "2026-11-10 09:45"])
-        self.run_quiet(R.main, ["--at", "2026-11-10 09:45"])
-        code, out = self.run_quiet(P.main, ["open", "--reply", "ok", "--at", "2026-11-10 09:45"])
+        self.run_quiet(S.main, ["orb", "--at", "2026-11-10 09:40"])
+        self.run_quiet(PL.main, ["TESTCO", "--at", "2026-11-10 09:40"])
+        self.run_quiet(R.main, ["--at", "2026-11-10 09:40"])
+        code, out = self.run_quiet(P.main, ["open", "--reply", "ok", "--at", "2026-11-10 09:40"])
         self.assertEqual(code, 3)
         self.assertEqual(J.trades(), [])
 
@@ -164,13 +164,13 @@ class DeskTest(unittest.TestCase):
         self.assertIn("trade(s) today", out)
 
     def test_plan_change_after_pass_is_not_ready(self):
-        self.run_quiet(S.main, ["orb", "--at", "2026-11-10 09:45"])
-        self.run_quiet(PL.main, ["TESTCO", "--at", "2026-11-10 09:45"])
-        self.run_quiet(R.main, ["--at", "2026-11-10 09:45"])
+        self.run_quiet(S.main, ["orb", "--at", "2026-11-10 09:40"])
+        self.run_quiet(PL.main, ["TESTCO", "--at", "2026-11-10 09:40"])
+        self.run_quiet(R.main, ["--at", "2026-11-10 09:40"])
         plan = C.read_json("plan.json")
         plan["qty"] += 5
         C.write_json("plan.json", plan)
-        ok, why = P.ready(plan, C.now_ist("2026-11-10 09:45"))
+        ok, why = P.ready(plan, C.now_ist("2026-11-10 09:40"))
         self.assertFalse(ok)
 
 
