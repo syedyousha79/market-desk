@@ -22,7 +22,7 @@ def orb_for(symbol, now, cfg):
     if not today:
         return {"symbol": C.plain(C.yahoo_symbol(symbol)), "status": "no bars today"}
     today = C.closed_bars(today, now)
-    n_or = cfg["or_minutes"] // C.BAR_MIN
+    n_or = int(cfg["or_minutes"]) // C.BAR_MIN
     if len(today) < n_or:
         return {"symbol": C.plain(C.yahoo_symbol(symbol)), "status": "opening range still forming"}
     rng = today[:n_or]

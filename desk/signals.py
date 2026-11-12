@@ -26,7 +26,7 @@ def ideas(cfg, now):
         except C.DeskError:
             pass
     hits = sorted([r for r in rows if r.get("status") == "breakout"], key=lambda r: -(r.get("volume_x") or 0))
-    in_play = {r["symbol"] for r in hits[:cfg["in_play_top"]]}
+    in_play = {r["symbol"] for r in hits[:int(cfg["in_play_top"])]}
     brief = C.read_json("brief.json", {}) or {}
     avoid = {a["symbol"]: a.get("why", "") for a in brief.get("avoid", [])} if brief.get("date") == now.date().isoformat() else {}
     since = now - C.dt.timedelta(hours=cfg["news_veto_hours"])
