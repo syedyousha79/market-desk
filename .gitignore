@@ -2,3 +2,4 @@
 trader/*
 !trader/config.json
 __pycache__/
+research_notes/

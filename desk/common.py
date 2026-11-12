@@ -62,7 +62,7 @@ DEFAULTS = {
     "charges": {
         "brokerage_rate": 0.0003, "brokerage_cap": 20.0,   # per executed order
         "stt_sell": 0.00025,
-        "exchange_txn": 0.0000297,
+        "exchange_txn": 0.0000307,                         # NSE, per Zerodha charges page (Nov 2026)
         "sebi": 0.000001,
         "stamp_buy": 0.00003,
         "gst": 0.18,
