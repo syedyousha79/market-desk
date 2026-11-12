@@ -312,6 +312,16 @@ class Fills(Base):
 
 
 class Agents(Base):
+    def test_min_stop_distance_widens_tight_stops(self):
+        o = PL.build("TESTCO", 100.0, 99.8, self.cfg, C.now_ist("2026-11-10 09:40"), "orb")
+        self.assertEqual(o["stop"], 99.0)                          # 0.2% widened to the 1% minimum
+
+    def test_charge_filter_blocks_charge_heavy_trades(self):
+        self.write_cfg({"watchlist": ["TESTCO"], "max_charges_r": 0.01})
+        code, out = self.ready_plan()
+        self.assertEqual(code, 2)
+        self.assertIn("charges", out)
+
     def test_prefill_recheck_refuses_after_bad_news(self):
         self.ready_plan()
         C.post("news", C.now_ist("2026-11-10 09:40"), stocks=["TESTCO"], text="probe", source="x",

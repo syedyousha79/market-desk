@@ -47,6 +47,10 @@ def size(entry, stop, target, cfg):
 
 def build(sym, entry, stop, cfg, now, setup, target=None, target_r=None):
     """A sized order dict (also used by the approver). qty 0 means no trade."""
+    side = 1 if stop < entry else -1
+    min_gap = entry * cfg.get("min_stop_pct", 0) / 100     # wider stop: fewer shares, less charge drag
+    if abs(entry - stop) < min_gap:
+        stop = round(entry - side * min_gap, 2)
     r = target_r or cfg.get("target_r", 1.5)
     target = target if target is not None else round(entry + r * (entry - stop), 2)
     return {"symbol": sym, "date": now.date().isoformat(), "made_at": now.strftime("%H:%M"),
@@ -84,7 +88,7 @@ def main(argv=None):
         long_ = hit.get("side", "long") == "long"
         stop = hit["or_mid"] if a.stop_rule == "or-mid" else (hit["or_low"] if long_ else hit["or_high"])
     order = build(sym, entry, stop, cfg, now, "orb" if hit else "manual", a.target, a.target_r)
-    s, target = order, order["target"]
+    s, target, stop = order, order["target"], order["stop"]
     C.write_json("plan.json", order)
 
     print("PLAN %s (%s), %s account" % (sym, order["setup"], "PAPER" if cfg["paper"] else "LIVE"))
