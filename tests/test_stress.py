@@ -297,6 +297,12 @@ class Fills(Base):
         hit, _ = P.walk(self.row(), bars, self.cfg)
         self.assertEqual(hit, (100.5, "15:15", "flat-by (data gap)"))
 
+    def test_flat_by_bar_still_forming_is_not_a_data_gap(self):
+        self.ready_plan()
+        self.quiet(P.main, ["open", "--reply", "yes", "--at", "2026-11-10 09:40"])
+        P.update(C.with_money(C.load_config()), C.now_ist("2026-11-10 15:16"))   # 15:15 bar not closed yet
+        self.assertNotEqual(J.trades()[0]["exit_reason"], "flat-by (data gap)")
+
     def test_short_side_mirrors(self):
         r = {"row": {"side": "short", "entry": 100, "stop": 101}}
         self.assertEqual(self.exit([(100, 101.5, 99.5, 101)], **dict(r))[0][2], "stop")
