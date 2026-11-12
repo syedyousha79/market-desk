@@ -71,21 +71,26 @@ def check(cfg, now, quiet=False):
             if not quiet:
                 print("news skipped: %s" % str(e)[:80])
     if C.phase(now, cfg) == "open":
-        SG.ideas(cfg, now)
-        P.update(cfg, now)
+        P.update(cfg, now)                           # protect money first
+        try:
+            SG.ideas(cfg, now)
+        except Exception as e:                       # a signal hiccup must never stop the monitor
+            if not quiet:
+                print("signals skipped: %s" % str(e)[:80])
         flat = C.dt.datetime.combine(now.date(), C.hhmm(cfg["flat_by"]), C.IST)
         if not st["flat_warned"] and flat - C.dt.timedelta(minutes=10) <= now < flat:
             st["flat_warned"] = True
             C.post("warn", now, text="Flat-by %s in under 10 minutes: open trades will be closed." % cfg["flat_by"])
     evs = C.events(now.date())
-    new, st["sent"] = evs[st["sent"]:], len(evs)
-    C.write_json("state/loop.json", st)
+    new = evs[st["sent"]:]
     for e in new:
         msg = text(e)
-        if msg:
-            C.telegram_send(msg)
-            if not quiet:
-                print(msg)
+        if msg and C.telegram_send(msg) is False:   # network failure: retry from here next pass
+            break
+        st["sent"] += 1
+        if msg and not quiet:
+            print(msg)
+    C.write_json("state/loop.json", st)
     return new
 
 

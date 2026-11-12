@@ -307,7 +307,12 @@ def events(day, kind=None):
     if not os.path.exists(path):
         return []
     with open(path, encoding="utf-8") as f:
-        evs = [json.loads(line) for line in f if line.strip()]
+        evs = []
+        for line in f:
+            try:
+                evs.append(json.loads(line))
+            except ValueError:                       # a half-written line: skip it, keep going
+                pass
     return [e for e in evs if kind is None or e["kind"] == kind]
 
 
@@ -370,13 +375,13 @@ def telegram_api(method, params=None):
 
 
 def telegram_send(text):
-    """Send to the one chat in .env. Returns True on success. Never raises."""
+    """Send to the one chat in .env. True sent, False failed (retry), None not sending. Never raises."""
     if os.environ.get("NSE_NO_TELEGRAM") or load_config().get("telegram_paused"):
-        return False
+        return None
     env = load_env()
     chat = env.get("TELEGRAM_CHAT_ID", "")
     if not chat or not chat.lstrip("-").isdigit():
-        return False
+        return None
     try:
         return bool(telegram_api("sendMessage", {"chat_id": chat, "text": text}).get("ok"))
     except DeskError:

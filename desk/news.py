@@ -56,11 +56,16 @@ ALIASES = {
     "LICI": ("Life Insurance Corporation of India", ["Life Insurance Corporation", "LIC"]),
 }
 
+# Other companies whose names start with a watchlist alias; removed before matching that stock.
+NOT_THIS = {"SBIN": r"SBI (Card|Life|General|Mutual|Funds?|MF|Securities)\w*", "LICI": r"LIC Housing\w*( Finance)?",
+            "HDFCBANK": r"HDFC (Life|AMC|Securities|Ergo)\w*", "ICICIBANK": r"ICICI (Pru\w*|Lombard|Securities|Life)\w*",
+            "BAJFINANCE": r"Bajaj Finserv", "TATASTEEL": r"Tata Steel Long\w*"}
+
 TOPICS = {
     "results": r"financial results|quarterly results|\bq[1-4]\b|earnings|net profit|profit (rises|falls|jumps|drops)|revenue",
     "deal": r"\border(s)? (win|worth|from)|bags? .*order|contract|acquisition|acquires?|merger|stake (sale|buy)|joint venture",
     "capital": r"dividend|bonus|stock split|buyback|rights issue|\bqip\b|fund ?raising|\bipo\b|ofs\b",
-    "governance": r"resign|penalt|sebi order|show cause|\braid|fraud|default|pledge|insolvency|probe|investigation",
+    "governance": r"resign|penalt|sebi order|show cause|\braid|fraud|payment default|loan default|defaults? on|pledge|insolvency|probe|investigation",
     "broker call": r"\btarget\b|upgrade|downgrade|\bbuy\b.*\b(rs|₹)|\bsell\b.*\b(rs|₹)|overweight|underweight|initiates? coverage",
     "block deal": r"block deal|bulk deal",
     "macro": r"\brbi\b|repo rate|monetary policy|\bfed\b|fomc|inflation|\bcpi\b|\bgdp\b|crude|oil price|rupee|"
@@ -70,6 +75,8 @@ TOPICS = {
 ROUTINE = r"trading window|analyst/investor meet|investor meet|newspaper publication|redemption/payment of interest|" \
           r"loss of share certificate|certificate under sebi|shareholders meeting|record date|transcripts?|" \
           r"interest payment|reg\. 74|regulation 74|duplicate share|change in rta|esop|esos|allotment of securities"
+GOOD_FALLS = (r"\b(debt|costs?|expenses?|losses?|npas?|leverage)\s+(falls?|drops?|declines?|narrows?|cut|reduced?)\b|"
+              r"\bcuts?\s+(debt|costs?|losses?)\b|\bloss\s+narrows?\b")
 UP = r"\b(surg\w*|soar\w*|jump\w*|rall(y|ies|ied)|gains?|record high|52-week high|upgrade\w*|beats?|wins?|bags?|" \
      r"rises?|climbs?|strong\w*|rebound\w*|lifts?)\b"
 DOWN = r"\b(plung\w*|slump\w*|crash\w*|tumbl\w*|falls?|drops?|slides?|sinks?|slips?|downgrade\w*|miss(es)?|loss(es)?|" \
@@ -144,11 +151,13 @@ def classify(item, pats):
         if item["source"] == "NSE":
             if legal and item["title"].lower() == legal.lower():
                 stocks.append(sym)
-        elif any(p.search(text) for p in ps):
+        elif any(p.search(re.sub(NOT_THIS[sym], " ", text) if sym in NOT_THIS else text) for p in ps):
             stocks.append(sym)
     tags = [t for t, rx in TOPICS.items() if re.search(rx, low)]
     routine = bool(re.search(ROUTINE, low))
-    up, down = len(re.findall(UP, low)), len(re.findall(DOWN, low))
+    good = re.findall(GOOD_FALLS, low)                  # "debt falls", "costs cut", "loss narrows" are good news
+    rest = re.sub(GOOD_FALLS, " ", low)
+    up, down = len(re.findall(UP, rest)) + len(good), len(re.findall(DOWN, rest))
     tone = "up?" if up > down else ("down?" if down > up else "unclear")
     item.update(stocks=stocks, tags=tags, routine=routine, tone_hint=tone)
     item["matters"] = bool((stocks and not routine) or ("macro" in tags and item["source"] != "NSE"))
@@ -170,7 +179,7 @@ def collect(cfg, now, hours):
     seen_titles, unique = set(), []
     for it in out:                 # ET Markets and ET Stocks often carry the same story
         # NSE titles are only the company name, so NSE filings are told apart by link
-        t = it["link"] if it["source"] == "NSE" else re.sub(r"\W+", " ", it["title"].lower()).strip()
+        t = key(it) if it["source"] == "NSE" else re.sub(r"\W+", " ", it["title"].lower()).strip()
         if t not in seen_titles:
             seen_titles.add(t)
             unique.append(it)
@@ -178,15 +187,17 @@ def collect(cfg, now, hours):
 
 
 def key(item):
-    return item["link"] or (item["source"] + item["title"])
+    return item["link"] or "|".join((item["source"], item["title"], item["summary"][:80], str(item["time"])))
 
 
 def new_items(cfg, now, hours=6):
     items, _ = collect(cfg, now, hours)
-    seen = set(C.read_json("state/news_seen.json", []) or [])
-    fresh = [i for i in items if i["matters"] and key(i) not in seen]
-    seen.update(key(i) for i in items)
-    C.write_json("state/news_seen.json", sorted(seen)[-3000:])
+    stored = C.read_json("state/news_seen.json")
+    seen = list(stored or [])
+    known = set(seen)
+    fresh = [i for i in items if i["matters"] and key(i) not in known] if stored is not None else []
+    seen += [key(i) for i in items if key(i) not in known]        # first run only seeds: no backlog flood
+    C.write_json("state/news_seen.json", seen[-3000:])              # oldest drop off, newest kept
     return fresh
 
 

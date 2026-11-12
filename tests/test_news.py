@@ -77,7 +77,19 @@ class NewsTest(unittest.TestCase):
     def test_tata_motors_cv_is_not_tmpv(self):
         self.assertNotIn("TMPV", self.items()["https://e/4"]["stocks"])
 
+    def test_first_run_seeds_without_flooding(self):
+        self.assertEqual(N.new_items(self.cfg, self.now), [])
+        self.assertTrue(C.read_json("state/news_seen.json"))
+
+    def test_good_falls_and_other_companies(self):
+        it = {"source": "ET Markets", "link": "x", "time": self.now, "summary": "",
+              "title": "Tata Steel profit jumps 40% as debt falls and costs cut"}
+        self.assertNotEqual(N.classify(dict(it), N.watch_patterns(self.cfg))["tone_hint"], "down?")
+        it["title"] = "SBI Cards shares slump; LIC Housing Finance falls"
+        self.assertEqual(N.classify(dict(it), N.watch_patterns(self.cfg))["stocks"], [])
+
     def test_new_items_only_once(self):
+        C.write_json("state/news_seen.json", [])
         first = N.new_items(self.cfg, self.now)
         self.assertTrue(first)
         self.assertEqual(N.new_items(self.cfg, self.now), [])

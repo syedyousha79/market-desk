@@ -37,11 +37,12 @@ Exits: break-even at +1R, then a stop trailing 1R behind the best price, bad-new
 time stop, stale-data exit, 15:15 flat-by. Entries always need your yes; exits never do.
 One open trade at a time; 3 losses in a row pauses trading until `python desk/risk.py --resume`.
 
-## Your limits (defaults, change in `trader/config.json`)
+## Your limits (percent of equity; change in `trader/config.json`)
 
-Account ₹1,000 · max loss ₹25 a trade, ₹25 a day, ₹100 a week · 1 trade a day ·
-entries 09:30–14:30 · out by 15:15 · long only · net reward:risk ≥ 1 after Zerodha charges.
-Copy `desk/config.example.json` to `trader/config.json` to change anything.
+Risk 2.5% a trade and stop at -2.5% a day, -6% a week; kill switch at 15% below peak equity.
+One open trade, 1 trade a day, 3 losses in a row pauses. Entries 09:30-14:30, out by 15:15, long only.
+Exits: break-even at +1R, half sold at +2R, 1R trailing stop, bad-news exit, 60-minute time stop.
+Predictor runs in shadow mode (`predictor_min` 0) until `python desk/predict.py train` proves it on unseen days.
 
 ## Setup
 

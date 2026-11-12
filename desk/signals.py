@@ -32,11 +32,12 @@ def ideas(cfg, now):
     since = now - C.dt.timedelta(hours=cfg["news_veto_hours"])
     news = [e for e in C.events(now.date(), "news") if C.dt.datetime.fromisoformat(e["time"]) >= since]
     boundary = now.replace(minute=now.minute - now.minute % C.BAR_MIN, second=0)
+    posted = {(e["symbol"], e.get("trigger")) for e in C.events(now.date(), "signal")}
     out = []
     for r in hits:
         end = C.dt.datetime.combine(now.date(), C.hhmm(r["trigger_bar"]), C.IST) + C.dt.timedelta(minutes=C.BAR_MIN)
-        if end != boundary:
-            continue                                   # only act on the bar that just closed
+        if end != boundary or (r["symbol"], r["trigger_bar"]) in posted:
+            continue                                   # only the bar that just closed, and only once
         sym, why = r["symbol"], ["breakout %s on %sx volume" % (r["trigger_bar"], r["volume_x"])]
         if sym not in in_play:
             continue
@@ -54,19 +55,20 @@ def ideas(cfg, now):
         sc = PR.score(f)
         if cfg["predictor_min"] and sc < cfg["predictor_min"]:
             continue                                   # predictor filter, off in shadow mode
-        out.append(C.post("signal", now, symbol=sym, entry=r["trigger_close"], or_low=r["or_low"],
+        out.append(C.post("signal", now, symbol=sym, entry=r["trigger_close"], or_low=r["or_low"], trigger=r["trigger_bar"],
                           or_high=r["or_high"], why="; ".join(why), score=sc, features=f))
-    out += reentries(rows, now, cfg)
+    vetoed = set(avoid) | {s for e in news if e.get("bearish") for s in e.get("stocks", [])}
+    out += reentries(rows, now, cfg, vetoed)
     return out
 
 
-def reentries(rows, now, cfg):
+def reentries(rows, now, cfg, skip=()):
     """Re-entry watcher: after a profitable exit today, a new high above the exit price on strong volume."""
     out = []
     done = {e["symbol"] for e in C.events(now.date(), "signal") if e.get("reentry")}
     for e in C.events(now.date(), "exit"):
         sym = e["symbol"]
-        if float(e.get("net") or 0) <= 0 or sym in done:
+        if float(e.get("net") or 0) <= 0 or sym in done or sym in skip:
             continue
         r = next((x for x in rows if x.get("symbol") == sym and "last" in x), None)
         if not r:
