@@ -1,0 +1,290 @@
+<title>Market Desk Floor Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: single reading column, floor-plan "rooms" grid, phase timeline, two-column who-does-what */
+:root{
+  --bg:#f6f7f9; --surface:#ffffff; --fg:#17202b; --muted:#5b6675; --line:#d9dee5;
+  --accent:#1f5fd1; --accent-soft:#e6eefc;
+  --code:#0e7c66; --code-soft:#e3f4ef;
+  --ai:#7a3fc4; --ai-soft:#f0e8fb;
+  --tool:#b35a00; --tool-soft:#fbefe1;
+  --you:#a3243b; --you-soft:#fae6ea;
+  --display:"Space Grotesk",system-ui,sans-serif;
+  --body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f141b; --surface:#171e27; --fg:#e6ebf1; --muted:#9aa6b5; --line:#2a3440;
+  --accent:#6b9cff; --accent-soft:#1a2740;
+  --code:#4fd1b0; --code-soft:#12302a;
+  --ai:#b993f0; --ai-soft:#2a1f3d;
+  --tool:#f0a65a; --tool-soft:#33240f;
+  --you:#f07a90; --you-soft:#3a1820;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f141b; --surface:#171e27; --fg:#e6ebf1; --muted:#9aa6b5; --line:#2a3440;
+  --accent:#6b9cff; --accent-soft:#1a2740;
+  --code:#4fd1b0; --code-soft:#12302a;
+  --ai:#b993f0; --ai-soft:#2a1f3d;
+  --tool:#f0a65a; --tool-soft:#33240f;
+  --you:#f07a90; --you-soft:#3a1820;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.6;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 64px}
+.wrap{max-width:960px;margin:0 auto;display:flex;flex-direction:column;gap:48px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:clamp(28px,5vw,40px)}
+h2{font-size:22px}
+h3{font-size:16px}
+p{margin:0;max-width:68ch}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+header{display:flex;flex-direction:column;gap:12px}
+.lede{color:var(--muted);font-size:17px}
+.clock{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.clock span{font-family:var(--mono);font-size:12px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:var(--surface);font-variant-numeric:tabular-nums}
+section{display:flex;flex-direction:column;gap:16px}
+
+/* legend */
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle}
+
+/* floor plan */
+.plan{border:2px solid var(--fg);border-radius:6px;background:var(--surface);padding:16px;display:grid;gap:12px;
+  grid-template-columns:repeat(4,minmax(0,1fr))}
+.room{border:1.5px solid var(--line);border-radius:4px;padding:12px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.room h3{font-size:14px}
+.room p{font-size:13px;color:var(--muted)}
+.room .tag{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.zone-label{grid-column:1/-1;font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  border-top:1px dashed var(--line);padding-top:10px;margin-top:4px}
+.zone-label:first-child{border-top:0;padding-top:0;margin-top:0}
+.tool{background:var(--tool-soft);border-color:var(--tool)} .tool .tag{color:var(--tool)}
+.code{background:var(--code-soft);border-color:var(--code)} .code .tag{color:var(--code)}
+.ai{background:var(--ai-soft);border-color:var(--ai)} .ai .tag{color:var(--ai)}
+.you{background:var(--you-soft);border-color:var(--you)} .you .tag{color:var(--you)}
+.span2{grid-column:span 2}
+.span4{grid-column:1/-1}
+.flow{grid-column:1/-1;text-align:center;font-family:var(--mono);font-size:12px;color:var(--muted)}
+@media (max-width:720px){.plan{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:440px){.plan{grid-template-columns:minmax(0,1fr)}.span2{grid-column:auto}}
+
+/* where updates land */
+.lands{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.land{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:6px}
+.land b{font-family:var(--display)}
+.land p{font-size:14px;color:var(--muted)}
+
+/* day timeline */
+.day{display:grid;grid-template-columns:110px minmax(0,1fr);border-top:1px solid var(--line)}
+.day > div{padding:10px 0;border-bottom:1px solid var(--line)}
+.day .t{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;color:var(--accent)}
+.day .d{font-size:14px}
+
+/* phases */
+.phases{display:flex;flex-direction:column;gap:0;border-left:2px solid var(--line);margin-left:6px}
+.phase{position:relative;padding:0 0 22px 22px;display:flex;flex-direction:column;gap:6px}
+.phase::before{content:"";position:absolute;left:-7px;top:6px;width:12px;height:12px;border-radius:50%;background:var(--surface);border:2px solid var(--accent)}
+.phase.now::before{background:var(--accent)}
+.phase .when{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.phase ul{margin:0;padding-left:18px;font-size:14px}
+.phase .cost{font-family:var(--mono);font-size:12px;color:var(--code)}
+
+/* who does what */
+.who{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media (max-width:640px){.who{grid-template-columns:minmax(0,1fr)}}
+.col{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.col ol{margin:0;padding-left:20px;font-size:14px;display:flex;flex-direction:column;gap:8px}
+.col.you-col{border-top:3px solid var(--you)}
+.col.me-col{border-top:3px solid var(--ai)}
+
+/* broker */
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:14px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+.pick{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+
+/* questions */
+.qs{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;counter-reset:q}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:4px;counter-increment:q}
+.q b::before{content:"Q" counter(q) "  ";font-family:var(--mono);color:var(--accent);font-weight:600}
+.q p{font-size:14px;color:var(--muted)}
+
+.rules{background:var(--you-soft);border:1px solid var(--you);border-radius:6px;padding:16px;display:flex;flex-direction:column;gap:8px}
+.rules ul{margin:0;padding-left:18px;font-size:14px}
+footer{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:16px}
+</style>
+
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">NSE · BSE intraday · Zerodha · plan v1</span>
+  <h1>Market Desk Floor Plan</h1>
+  <p class="lede">How the team's trading assistant is laid out: what watches the market, what thinks, where the updates arrive, and who does each step. It starts at ₹0 beyond the Claude plan and only adds paid parts once the journal shows they're earned.</p>
+  <div class="clock">
+    <span>Pre-open 09:00–09:08 IST</span>
+    <span>Market 09:15–15:30 IST</span>
+    <span>Intraday square-off ~15:15–15:20</span>
+  </div>
+</header>
+
+<section>
+  <h2>The floor plan</h2>
+  <div class="legend">
+    <span><i style="background:var(--tool)"></i>Existing free tools</span>
+    <span><i style="background:var(--code)"></i>Bot I build (plain code, no AI bill)</span>
+    <span><i style="background:var(--ai)"></i>Claude (your current plan)</span>
+    <span><i style="background:var(--you)"></i>Your team</span>
+  </div>
+
+  <div class="plan">
+    <div class="zone-label">Inputs · market and news</div>
+    <div class="room tool"><span class="tag">Tool</span><h3>Zerodha Kite</h3><p>Your account, live prices, GTT stop-losses that run on Zerodha's side.</p></div>
+    <div class="room tool"><span class="tag">Tool</span><h3>Chartink</h3><p>Free scans: ORB breakouts, volume spikes, gap-ups and gap-downs.</p></div>
+    <div class="room tool"><span class="tag">Tool</span><h3>TradingView</h3><p>Charts and price-level alerts on the free plan.</p></div>
+    <div class="room tool"><span class="tag">Tool</span><h3>News feeds</h3><p>NSE and BSE announcements, Moneycontrol and ET Markets RSS, global headlines.</p></div>
+
+    <div class="flow">↓ everything feeds the bot ↓</div>
+
+    <div class="zone-label">The bot · runs 24/7 on a free Oracle Cloud server (Mumbai)</div>
+    <div class="room code"><span class="tag">Code</span><h3>Market watcher</h3><p>Streams your watchlist, Nifty, BankNifty and India VIX. Flags volume spikes, gaps and your levels.</p></div>
+    <div class="room code"><span class="tag">Code</span><h3>News scanner</h3><p>Matches headlines to your watchlist and to big triggers: Fed, RBI, crude, USD/INR, war, results.</p></div>
+    <div class="room code"><span class="tag">Code</span><h3>Journal writer</h3><p>Logs every alert and what price did 15, 30 and 60 minutes later to a Google Sheet.</p></div>
+    <div class="room code"><span class="tag">Code</span><h3>Health monitor</h3><p>Pings the group if the feed drops, the daily Kite login expires or the server stops.</p></div>
+
+    <div class="flow">↓ alerts and briefs ↓</div>
+
+    <div class="zone-label">Thinking · Claude through your existing plan</div>
+    <div class="room ai span2"><span class="tag">Claude</span><h3>Scheduled briefs</h3><p>08:30 morning brief and 16:00 evening review, posted to Telegram. Runs while your PC and the Claude app are on.</p></div>
+    <div class="room ai span2"><span class="tag">Claude</span><h3>On-demand analyst</h3><p>Research a stock, judge a headline's impact, and do the weekly review of which alerts actually worked.</p></div>
+
+    <div class="flow">↓ delivered to ↓</div>
+
+    <div class="zone-label">Decisions · your team</div>
+    <div class="room you span4"><span class="tag">Team</span><h3>Telegram group → you decide → you place the trade on Kite → GTT protects it</h3><p>No order is placed by any agent in the first phases. Automation (Streak, which is built into Zerodha) comes only after 4–6 weeks of journal evidence.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Where your updates land</h2>
+  <div class="lands">
+    <div class="land"><b>Telegram group</b><p>The main channel. Live alerts from the bot, the morning and evening briefs, and health warnings. Everyone on the team joins.</p></div>
+    <div class="land"><b>Google Sheet journal</b><p>Every alert and trade with its outcome. This is how you find out what actually makes money.</p></div>
+    <div class="land"><b>This Claude app</b><p>Where you ask me for research, strategy reviews and changes to the bot.</p></div>
+    <div class="land"><b>This page</b><p>The floor plan. I'll update it as decisions are made.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>A trading day</h2>
+  <div class="day">
+    <div class="t">Overnight</div><div class="d">Bot watches US markets, GIFT Nifty, crude and global news. Big events post to Telegram straight away.</div>
+    <div class="t">08:30</div><div class="d">Morning brief: global cues, GIFT Nifty, results due today, F&amp;O ban list, overnight flags.</div>
+    <div class="t">09:00–09:08</div><div class="d">Pre-open: gap-up and gap-down list for the watchlist.</div>
+    <div class="t">09:15–15:30</div><div class="d">Live alerts: breakouts, volume spikes, news hits. The team decides and trades on Kite.</div>
+    <div class="t">15:15</div><div class="d">Reminder to close intraday positions before Zerodha's auto square-off.</div>
+    <div class="t">16:00</div><div class="d">Evening review: what moved and why, which alerts worked, setups for tomorrow.</div>
+    <div class="t">Sunday</div><div class="d">Weekly review from the journal, plus the coming week's events (RBI, results, expiries).</div>
+  </div>
+</section>
+
+<section>
+  <h2>Build phases</h2>
+  <div class="phases">
+    <div class="phase now"><span class="when">Now</span><h3>0 · Decisions and accounts</h3>
+      <ul><li>Answer the questions at the bottom of this page.</li><li>Set up Kite Connect, the Telegram group and bot, and Oracle Cloud.</li></ul>
+      <span class="cost">₹0 · Kite Connect data plan is the one possible fee</span></div>
+    <div class="phase"><span class="when">Week 1</span><h3>1 · Bot and alerts</h3>
+      <ul><li>I build the watcher, news scanner and health monitor, with tests.</li><li>Deploy to Oracle Cloud and connect Telegram.</li></ul>
+      <span class="cost">₹0 hosting</span></div>
+    <div class="phase"><span class="when">Week 1–2</span><h3>2 · Journal and briefs</h3>
+      <ul><li>Google Sheet journal with automatic outcome tracking.</li><li>Scheduled morning and evening briefs.</li></ul>
+      <span class="cost">₹0</span></div>
+    <div class="phase"><span class="when">Weeks 2–6</span><h3>3 · Paper and manual trading</h3>
+      <ul><li>Backtest the four strategy families on past NSE data.</li><li>Trade the best one or two on paper or small size and log everything.</li></ul>
+      <span class="cost">₹0</span></div>
+    <div class="phase"><span class="when">After week 6</span><h3>4 · Automate what worked</h3>
+      <ul><li>Move proven rules to Streak with hard loss limits.</li><li>Consider the custom AI agents (API key) only for the parts the journal shows are worth it.</li></ul>
+      <span class="cost">Streak subscription · optional API usage</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>Who does what</h2>
+  <div class="who">
+    <div class="col you-col"><h3>Your team</h3>
+      <ol>
+        <li>Account holder enables <b>Kite Connect</b> at developers.kite.trade and keeps the API key and secret private.</li>
+        <li>Create a <b>Telegram group</b>, then a bot through @BotFather. Keep the bot token private.</li>
+        <li>Sign up for <b>Oracle Cloud free tier</b>, Mumbai region.</li>
+        <li>Pick a <b>project folder</b> on your PC for the code.</li>
+        <li>Write down your <b>risk limits</b> in rupees: per trade, per day.</li>
+        <li>Build a starting <b>watchlist</b> of 15–30 stocks.</li>
+        <li>Paste every key into the server's config file yourselves. Never send keys in chat.</li>
+      </ol>
+    </div>
+    <div class="col me-col"><h3>Claude</h3>
+      <ol>
+        <li>Write the blueprint: data formats, folders, config file.</li>
+        <li>Build the bot modules in parallel sessions, each with tests.</li>
+        <li>Write step-by-step guides for Kite Connect, Telegram and Oracle Cloud.</li>
+        <li>Set up the Google Sheet journal.</li>
+        <li>Run backtests of the strategy families and report results.</li>
+        <li>Run the scheduled briefs and the weekly review.</li>
+        <li>Keep this floor plan up to date.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Zerodha: how to get live data</h2>
+  <p>Trading stays on your Zerodha account either way. The open choice is where the bot gets its live prices.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Option</th><th>How it works</th><th>Cost</th><th>Trade-off</th></tr></thead>
+    <tbody>
+      <tr><td><b>A · Kite Connect data plan</b> <span class="pick">suggested</span></td><td>Bot reads live prices from your Zerodha account</td><td>Monthly fee (check current price on developers.kite.trade)</td><td>One account, best docs, includes history for backtests, and Streak later is native</td></tr>
+      <tr><td><b>B · Free Dhan account for data</b></td><td>Keep trading on Zerodha, open a Dhan account only for its free data API</td><td>₹0</td><td>A second account to open and keep active</td></tr>
+    </tbody>
+  </table></div>
+  <p style="color:var(--muted);font-size:14px">Kite Connect needs a fresh login token every day. The bot will send a login link to Telegram each morning, and the account holder taps it.</p>
+</section>
+
+<section class="rules">
+  <h2>Ground rules</h2>
+  <ul>
+    <li>No agent places orders until phase 4, and then only inside hard limits your team sets.</li>
+    <li>The account belongs to one person. Don't pool teammates' money into it; that needs SEBI registration. Each member can follow the alerts on their own account.</li>
+    <li>Alerts and briefs are research. Every trade decision stays with a person.</li>
+    <li>Keys and passwords never go in chat.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Decisions so far</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Topic</th><th>Decision</th></tr></thead>
+    <tbody>
+      <tr><td>Alerts</td><td>Telegram. Team of 3; it's fine if only the lead gets the messages at first.</td></tr>
+      <tr><td>Market</td><td>Cash stocks first, F&amp;O later.</td></tr>
+      <tr><td>Market hours</td><td>Someone is watching the screen during market hours.</td></tr>
+      <tr><td>Risk limit</td><td>₹1,000 is the whole account. Paper trading only until the journal shows a setup that holds up after charges. Live rules later: ₹100 max loss per week, ₹20–25 per day, 1 trade a day.</td></tr>
+      <tr><td>Strategy</td><td>None yet. The bot backtests ORB, VWAP pullback, news momentum and gap plays, and the team picks from the results.</td></tr>
+      <tr><td>Skills pack</td><td>Fork the open-source day-trader-skill pack (MIT) and adapt it to NSE: keep scanner, entry, exit, Time Machine, budget, risk and alerts; rewrite news, broker and market hours for India; drop the US-only Pelosi and SEC analyst skills.</td></tr>
+      <tr><td>Data source</td><td>Option A: Kite Connect on the existing Zerodha account.</td></tr>
+      <tr><td>Account holders</td><td>1 Zerodha account. The other two follow the alerts.</td></tr>
+      <tr><td>Watchlist</td><td>Built automatically by rules: index context (Nifty 50, Bank Nifty, Fin Service, India VIX) plus the day's most liquid large caps that pass volume and price filters.</td></tr>
+    </tbody>
+  </table></div>
+  <h2>Still open</h2>
+  <div class="qs">
+    <div class="q"><b>Kite Connect plan</b><p>Does the app at developers.kite.trade include live market data (WebSocket), or is it the orders-only Personal plan?</p></div>
+  </div>
+</section>
+
+<footer>Plan v1 · 12 Nov 2026 · Research and alerts only. Not investment advice.</footer>
+</div>
