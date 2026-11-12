@@ -47,6 +47,7 @@ DEFAULTS = {
     "or_minutes": 15,               # opening range 09:15-09:30
     "volume_multiple": 1.5,
     "allow_short": False,
+    "telegram_paused": False,       # True blocks every Telegram message
     "news_alert_macro": False,      # True also sends market-wide headlines (busy)
     "holidays": [],                 # "YYYY-MM-DD" NSE trading holidays; fill from nseindia.com
     "watchlist": [
@@ -305,7 +306,7 @@ def telegram_api(method, params=None):
 
 def telegram_send(text):
     """Send to the one chat in .env. Returns True on success. Never raises."""
-    if os.environ.get("NSE_NO_TELEGRAM"):
+    if os.environ.get("NSE_NO_TELEGRAM") or load_config().get("telegram_paused"):
         return False
     env = load_env()
     chat = env.get("TELEGRAM_CHAT_ID", "")

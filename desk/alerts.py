@@ -102,6 +102,9 @@ def main(argv=None):
     cfg = C.load_config()
     if a.cmd == "setup":
         return setup()
+    if cfg.get("telegram_paused") and a.cmd in ("test", "watch"):
+        print("Telegram is paused (telegram_paused in trader/config.json). Set it to false when the team is ready.")
+        return 0
     if a.cmd == "test":
         ok = C.telegram_send("Market Desk is connected. Alerts will arrive here.")
         print("Sent." if ok else "Not sent: run setup first, or check the token in .env.")
