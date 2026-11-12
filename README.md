@@ -15,7 +15,7 @@ scan → plan → risk check → your explicit "yes" → paper trade → journal
 | "What's the news?" | /nse-news + news-rater agent (Haiku) | `desk/news.py` |
 | "Any ideas?" | signal agent | `desk/signals.py` |
 | "Morning brief" | morning-brief agent (Sonnet) | writes `trader/brief.json` |
-| "Start watching" | /nse-alerts (the loop) | `desk/alerts.py` |
+| "Start watching" | /nse-alerts (the loop) | `desk/brain.py` |
 
 ## Which model does what
 
@@ -32,7 +32,7 @@ Cheap models do the frequent, simple work; bigger ones only where judgement matt
 ## How the agents talk
 
 They post short events to a message board (`trader/bus/<date>.jsonl`): news -> signal -> risk -> entry
--> trail/exit. The loop (`alerts.py watch`) runs them in order and relays posts to Telegram.
+-> trail/exit. The loop (`brain.py watch`) runs them in order and relays posts to Telegram.
 Exits: break-even at +1R, then a stop trailing 1R behind the best price, bad-news exit, 30-minute
 time stop, stale-data exit, 15:15 flat-by. Entries always need your yes; exits never do.
 One open trade at a time; 3 losses in a row pauses trading until `python desk/risk.py --resume`.
@@ -46,9 +46,9 @@ Copy `desk/config.example.json` to `trader/config.json` to change anything.
 ## Setup
 
 1. Python 3.8+ (no packages needed).
-2. Telegram: put your bot token in `.env`, send "hello" to the bot, run `python desk/alerts.py setup`.
+2. Telegram: put your bot token in `.env`, send "hello" to the bot, run `python desk/brain.py setup`.
 3. Tests: `python -m unittest discover -s tests -v` (48 tests, including stress tests)
-4. Alerts: `python desk/alerts.py watch` sends breakouts, paper exits, the flat-by warning and watchlist news.
+4. Alerts: `python desk/brain.py watch` sends breakouts, paper exits, the flat-by warning and watchlist news.
 
 ## Replay on real data
 

@@ -21,7 +21,7 @@ def size(entry, stop, target, cfg):
     per_share = abs(entry - stop)
     if per_share <= 0:
         raise C.DeskError("the stop must differ from the entry")
-    cap_value = cfg["account_inr"] * cfg["mis_leverage"]
+    cap_value = cfg.get("equity", cfg["account_inr"]) * cfg["mis_leverage"]
     qty = min(C.floor_qty(cfg["max_loss_per_trade"] / per_share), C.floor_qty(cap_value / entry))
     while qty > 0:
         buy, sell = (entry, stop) if side == 1 else (stop, entry)
@@ -55,7 +55,7 @@ def main(argv=None):
     p.add_argument("--target-r", type=float)
     p.add_argument("--at", help='pin the clock: "YYYY-MM-DD HH:MM" IST')
     a = p.parse_args(argv)
-    cfg = C.load_config()
+    cfg = C.with_money(C.load_config())
     now = C.now_ist(a.at)
     sym = C.plain(C.yahoo_symbol(a.symbol))
     hit = None

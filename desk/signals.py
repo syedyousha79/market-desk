@@ -14,6 +14,7 @@ import argparse
 import sys
 
 import common as C
+import predict as PR
 import scan as S
 
 
@@ -46,10 +47,38 @@ def ideas(cfg, now):
         mine = [e for e in news if sym in e.get("stocks", [])]
         if any(e.get("bearish") for e in mine):
             continue
-        if any(e.get("bullish") for e in mine):
+        bullish = any(e.get("bullish") for e in mine)
+        if bullish:
             why.append("bullish news: " + next(e["text"] for e in mine if e.get("bullish"))[:80])
+        f = PR.features(r, now, bullish)
+        sc = PR.score(f)
+        if cfg["predictor_min"] and sc < cfg["predictor_min"]:
+            continue                                   # predictor filter, off in shadow mode
         out.append(C.post("signal", now, symbol=sym, entry=r["trigger_close"], or_low=r["or_low"],
-                          or_high=r["or_high"], why="; ".join(why)))
+                          or_high=r["or_high"], why="; ".join(why), score=sc, features=f))
+    out += reentries(rows, now, cfg)
+    return out
+
+
+def reentries(rows, now, cfg):
+    """Re-entry watcher: after a profitable exit today, a new high above the exit price on strong volume."""
+    out = []
+    done = {e["symbol"] for e in C.events(now.date(), "signal") if e.get("reentry")}
+    for e in C.events(now.date(), "exit"):
+        sym = e["symbol"]
+        if float(e.get("net") or 0) <= 0 or sym in done:
+            continue
+        r = next((x for x in rows if x.get("symbol") == sym and "last" in x), None)
+        if not r:
+            continue
+        bars = C.closed_bars(C.by_day(C.fetch_bars(sym, "5d", "5m")).get(now.date(), []), now)
+        after = [b for b in bars if b["t"] >= C.dt.datetime.fromisoformat(e["at"])]
+        if len(after) >= 2 and after[-1]["c"] > max(float(e["price"]), max(b["h"] for b in after[:-1])) \
+                and after[-1]["v"] >= cfg["volume_multiple"] * (sum(b["v"] for b in bars) / len(bars)):
+            out.append(C.post("signal", now, symbol=sym, entry=round(after[-1]["c"], 2), or_low=r["or_low"],
+                              or_high=r["or_high"], reentry=True,
+                              why="re-entry: new high %s above the %s exit on strong volume" % (round(after[-1]["c"], 2), e["price"])))
+            done.add(sym)
     return out
 
 

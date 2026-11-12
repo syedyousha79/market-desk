@@ -6,10 +6,10 @@ description: Telegram alerts for the NSE desk. Connects the user's bot, sends a 
 # nse-alerts
 
 ```bash
-python desk/alerts.py setup     # after the user sends "hello" to their bot; saves the chat id in .env
-python desk/alerts.py test
-python desk/alerts.py check     # one pass now
-python desk/alerts.py watch     # the loop: every minute in market hours, 15 min otherwise
+python desk/brain.py setup     # after the user sends "hello" to their bot; saves the chat id in .env
+python desk/brain.py test
+python desk/brain.py check     # one pass now
+python desk/brain.py watch     # the loop: every minute in market hours, 15 min otherwise
 ```
 
 - The token lives only in `.env`, which the user fills in themselves. Never ask for it, print it,

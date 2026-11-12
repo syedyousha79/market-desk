@@ -8,7 +8,7 @@ import os
 import common as C
 
 FIELDS = ["id", "date", "symbol", "side", "qty", "entry", "stop", "cur_stop", "target", "max_loss", "opened_at",
-          "status", "exit_price", "exit_at", "exit_reason", "gross_pnl", "charges", "net_pnl",
+          "status", "partial_qty", "partial_price", "partial_at", "exit_price", "exit_at", "exit_reason", "gross_pnl", "charges", "net_pnl",
           "setup", "paper", "reply"]
 
 

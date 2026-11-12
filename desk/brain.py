@@ -1,9 +1,9 @@
-"""The loop: runs the agents in order and relays their messages to Telegram.
+"""The brain: one loop that runs every agent in order and relays their messages.
 
-    python desk/alerts.py setup     # link your Telegram chat (after sending 'hello' to the bot)
-    python desk/alerts.py test      # send a test message
-    python desk/alerts.py check     # one pass now
-    python desk/alerts.py watch     # loop: every minute in market hours, every 15 minutes otherwise
+    python desk/brain.py setup     # link your Telegram chat (after sending 'hello' to the bot)
+    python desk/brain.py test      # send a test message
+    python desk/brain.py check     # one pass now
+    python desk/brain.py watch     # loop: every minute in market hours, every 15 minutes otherwise
 
 Each pass: news scout -> signal agent -> position monitor -> flat-by warning,
 then the messenger sends any new message-board posts. The bot only messages the
@@ -42,6 +42,8 @@ def text(e):
         return "IDEA %s ~%s: %s. Ask Claude to plan it." % (e["symbol"], e["entry"], e["why"])
     if k == "entry":
         return "PAPER BUY %s x%s @ %s, stop %s, max loss %s" % (e["symbol"], e["qty"], e["price"], e["stop"], C.inr(e["max_loss"]))
+    if k == "partial":
+        return "HALF SOLD %s x%s @ %s at +2R: money in the bank, rest trails" % (e["symbol"], e["qty"], e["price"])
     if k == "trail":
         return "STOP RAISED %s to %s (best %s): profit protected" % (e["symbol"], e["stop"], e["peak"])
     if k == "exit":

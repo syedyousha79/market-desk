@@ -72,9 +72,11 @@ def main(argv=None):
     import paper as P
     import plan as PL
     import risk as R
+    import predict as PR
     import signals as SG
+    labelled = []
 
-    cfg = C.load_config()
+    cfg = C.with_money(C.load_config())
     days = sorted(C.by_day(cached("^NSEI")).keys())
     days = [d for d in days if C.is_trading_day(d, cfg)][-a.days:]
     blocks = {}
@@ -96,6 +98,11 @@ def main(argv=None):
             P.update(cfg, t)
             for h in SG.ideas(cfg, t):
                 signals += 1
+                if h.get("features"):                  # label every idea for the predictor, traded or not
+                    future = [b for b in C.by_day(cached(h["symbol"])).get(day, []) if b["t"] >= t]
+                    stop = (h["or_low"] + h["or_high"]) / 2
+                    labelled.append(dict(h["features"], date=day.isoformat(), symbol=h["symbol"], score=h["score"],
+                                         label=PR.label(h["entry"], stop, future, C.hhmm(cfg["flat_by"]))))
                 C.write_json("scan.json", {"hits": [dict(h, trigger_close=h["entry"], side="long",
                                                          or_mid=round((h["or_low"] + h["or_high"]) / 2, 2))]})
                 code, out = quiet(PL.main, [h["symbol"], "--at", stamp])
@@ -116,6 +123,18 @@ def main(argv=None):
             t += dt.timedelta(minutes=C.BAR_MIN)
         P.update(cfg, end + dt.timedelta(minutes=10))
 
+    if labelled:
+        import csv
+        path = C.state_path("ideas.csv")
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=list(labelled[0].keys()))
+            w.writeheader()
+            w.writerows(labelled)
+        won = sum(r["label"] for r in labelled)
+        hi = [r for r in labelled if r["score"] >= 55]
+        print("Predictor (shadow): %d ideas labelled, %.0f%% reached +1R first; ideas scoring 55+: %s"
+              % (len(labelled), won / len(labelled) * 100,
+                 "%.0f%% of %d" % (sum(r["label"] for r in hi) / len(hi) * 100, len(hi)) if hi else "none"))
     rows = J.trades()
     s = J.summary(rows)
     print("REPLAY on real NSE 5-minute data: %s to %s (%d sessions), %d symbols"
@@ -124,8 +143,8 @@ def main(argv=None):
         print("Fake account: $%g = %s at USD/INR %.2f (live)" % (a.usd, C.inr(account), rate))
     else:
         print("Fake account: %s" % C.inr(account))
-    print("Rules: max loss %s/trade, %s/day, %s/week, %d trade/day, entries %s-%s, out by %s"
-          % (C.inr(cfg["max_loss_per_trade"]), C.inr(cfg["max_loss_per_day"]), C.inr(cfg["max_loss_per_week"]),
+    print("Rules: risk %s%%/trade, stop at -%s%%/day, -%s%%/week, kill at -%s%% from peak, %d trade/day, entries %s-%s, out by %s"
+          % (cfg["risk_pct_trade"], cfg["loss_pct_day"], cfg["loss_pct_week"], cfg["kill_drawdown_pct"],
              cfg["max_trades_per_day"], cfg["no_entries_before"], cfg["no_entries_after"], cfg["flat_by"]))
     print()
     for r in rows:

@@ -37,7 +37,7 @@ class Base(unittest.TestCase):
         C.load_env = lambda: {}          # tests never see the real .env (token, chat id)
         os.environ["NSE_OFFLINE"] = self.data
         os.environ["NSE_NO_TELEGRAM"] = "1"
-        self.cfg = json.loads(json.dumps(C.DEFAULTS))
+        self.cfg = dict(json.loads(json.dumps(C.DEFAULTS)), max_loss_per_trade=25.0)
         self.cfg["watchlist"] = ["TESTCO"]
         self.write_cfg({"watchlist": ["TESTCO"]})
 
@@ -202,7 +202,7 @@ class Boundaries(Base):
         self.assertEqual(self.verdict_at("10:00"), 2)
 
     def test_weekly_budget_counts_earlier_days(self):
-        self.write_cfg({"watchlist": ["TESTCO"], "max_loss_per_week": 30})
+        self.write_cfg({"watchlist": ["TESTCO"], "loss_pct_week": 3})
         J.save([self.journal_row(date="2026-11-09", net_pnl=-20)])      # Monday loss
         self.assertEqual(self.verdict_at("09:45"), 2)
 
@@ -249,8 +249,21 @@ class Fills(Base):
         self.assertEqual((hit[0], hit[2]), (100.0, "break-even stop"))
 
     def test_time_stop_when_nothing_happens(self):
-        hit, _ = self.exit([(100, 100.3, 99.8, 100.1)] * 6)
-        self.assertEqual((hit[1], hit[2]), ("10:25", "time stop"))
+        hit, _ = self.exit([(100, 100.3, 99.8, 100.1)] * 12)
+        self.assertEqual((hit[1], hit[2]), ("10:55", "time stop"))
+
+    def test_half_sold_at_2r_and_pnl_counts_both_legs(self):
+        hit, st = self.exit([(100, 102.1, 99.9, 102), (102, 102.2, 101.0, 101.1)])
+        self.assertEqual(st["partial"], (102.0, "10:00"))
+        self.assertEqual(hit[2], "trailing stop")
+        row = dict(self.row(), qty=10, partial_qty=5, partial_price=102.0)
+        P.close_row(row, hit[0], hit[1], hit[2], self.cfg)
+        self.assertAlmostEqual(row["gross_pnl"], 5 * 2.0 + 5 * (hit[0] - 100), places=2)
+        self.assertGreater(row["charges"], 0)
+
+    def test_no_partial_with_one_share(self):
+        _, st = P.walk(dict(self.row(), qty=1), self.bars([(100, 102.1, 99.9, 102)]), self.cfg)
+        self.assertIsNone(st["partial"])
 
     def test_bad_news_exits_next_bar(self):
         import datetime as dt
@@ -286,7 +299,7 @@ class Agents(Base):
         self.assertIn("bad news", out)
 
     def test_losing_streak_pauses_and_resume_lifts_it(self):
-        self.write_cfg({"watchlist": ["TESTCO"], "max_loss_per_week": 1000, "max_loss_per_day": 1000,
+        self.write_cfg({"watchlist": ["TESTCO"], "loss_pct_week": 100, "loss_pct_day": 100,
                         "max_trades_per_day": 9})
         J.save([self.journal_row(id=str(i), date="2026-11-09", exit_at="1%d:00" % i, net_pnl=-1) for i in range(3)])
         self.assertEqual(self.ready_plan()[0], 2)
@@ -294,7 +307,7 @@ class Agents(Base):
         self.assertEqual(self.ready_plan()[0], 0)
 
     def test_max_open_blocks_second_position(self):
-        self.write_cfg({"watchlist": ["TESTCO"], "max_trades_per_day": 9, "max_loss_per_day": 1000})
+        self.write_cfg({"watchlist": ["TESTCO"], "max_trades_per_day": 9, "loss_pct_day": 100})
         J.save([self.journal_row(status="open", net_pnl="", max_loss=1, symbol="OTHER")])
         code, out = self.ready_plan()
         self.assertEqual(code, 2)

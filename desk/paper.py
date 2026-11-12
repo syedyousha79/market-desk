@@ -47,12 +47,15 @@ def walk(row, bars, cfg, news_times=()):
     entry, stop0 = float(row["entry"]), float(row["stop"])
     s = 1 if row["side"] == "long" else -1
     R = abs(entry - stop0)
-    stop, peak, prev = stop0, entry, None
+    stop, peak, prev, partial = stop0, entry, None, None
     flat = C.hhmm(row.get("flat_by") or cfg["flat_by"])
     news = list(news_times)
+
+    def st():
+        return {"stop": round(stop, 2), "peak": round(peak, 2), "partial": partial}
     for i, b in enumerate(bars):
         t = b["t"].strftime("%H:%M")
-        state = {"stop": round(stop, 2), "peak": round(peak, 2)}
+        state = st()
         if b["t"].time() >= flat:
             if b["t"].time() > flat and prev:            # feed skipped the flat-by bar
                 return (prev["c"], flat.strftime("%H:%M"), "flat-by (data gap)"), state
@@ -66,21 +69,31 @@ def walk(row, bars, cfg, news_times=()):
             return (stop, t, label), state
         peak = max(peak, b["h"]) if s == 1 else min(peak, b["l"])
         gain = (peak - entry) * s
+        if partial is None and int(row["qty"]) >= 2 and gain >= cfg["partial_r"] * R:
+            level = entry + s * cfg["partial_r"] * R              # sell half at +2R (at the open if it gapped past)
+            partial = (round(b["o"] if (b["o"] - level) * s >= 0 else level, 2), t)
         if gain >= cfg["breakeven_r"] * R:
             new = max(entry * s, (peak - s * cfg["trail_r"] * R) * s) * s
             stop = max(stop, new) if s == 1 else min(stop, new)
         if (i + 1) * C.BAR_MIN == cfg["time_stop_min"] and gain < cfg["time_stop_r"] * R:
-            return (b["c"], t, "time stop"), {"stop": round(stop, 2), "peak": round(peak, 2)}
+            return (b["c"], t, "time stop"), st()
         prev = b
-    return None, {"stop": round(stop, 2), "peak": round(peak, 2)}
+    return None, st()
 
 
 def close_row(row, price, when, reason, cfg):
-    qty, entry = int(row["qty"]), float(row["entry"])
-    buy, sell = (entry, price) if row["side"] == "long" else (price, entry)
-    ch = C.charges(qty * buy, qty * sell, cfg)["total"]
+    """Close the trade; a half already sold at +2R counts as its own order."""
+    qty, entry, s = int(row["qty"]), float(row["entry"]), 1 if row["side"] == "long" else -1
+    pq = int(row.get("partial_qty") or 0)
+    legs = [(pq, float(row["partial_price"]))] if pq else []
+    legs.append((qty - pq, price))
+    gross = sum(q * (px - entry) * s for q, px in legs)
+    ch = 0.0
+    for n, (q, px) in enumerate(legs):                    # entry charged once, each exit order separately
+        opening = qty * entry if n == 0 else 0
+        ch += C.charges(opening if s == 1 else q * px, q * px if s == 1 else opening, cfg)["total"]
     row.update(status="closed", exit_price=round(price, 2), exit_at=when, exit_reason=reason,
-               gross_pnl=round(qty * (sell - buy), 2), charges=ch, net_pnl=round(qty * (sell - buy) - ch, 2))
+               gross_pnl=round(gross, 2), charges=round(ch, 2), net_pnl=round(gross - ch, 2))
 
 
 def update(cfg, now):
@@ -99,6 +112,9 @@ def update(cfg, now):
             hit = (bars[-1]["c"], now.strftime("%H:%M"), "prices stopped arriving")
         if hit is None and now.date() > day and bars:
             hit = (bars[-1]["c"], bars[-1]["t"].strftime("%H:%M"), "session end")
+        if state["partial"] and not row.get("partial_qty"):
+            row.update(partial_qty=int(row["qty"]) // 2, partial_price=state["partial"][0], partial_at=state["partial"][1])
+            events.append(C.post("partial", now, symbol=row["symbol"], qty=row["partial_qty"], price=row["partial_price"]))
         if hit:
             close_row(row, *hit, cfg)
             events.append(C.post("exit", now, symbol=row["symbol"], price=row["exit_price"], reason=row["exit_reason"],

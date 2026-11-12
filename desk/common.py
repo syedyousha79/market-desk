@@ -35,9 +35,11 @@ DEFAULTS = {
     "paper": True,
     "account_inr": 1000,
     "mis_leverage": 5,              # Zerodha intraday (MIS) leverage on many stocks; check per stock
-    "max_loss_per_trade": 25,       # rupees, charges included
-    "max_loss_per_day": 25,
-    "max_loss_per_week": 100,
+    # Money rules in percent of current equity (account + closed net P&L); charges included.
+    "risk_pct_trade": 2.5,
+    "loss_pct_day": 2.5,
+    "loss_pct_week": 6.0,
+    "kill_drawdown_pct": 15.0,      # equity this far below its peak stops all trading
     "max_trades_per_day": 1,
     "min_reward_risk": 1.0,         # after charges, measured at the planning target
     "target_r": 1.5,                # planning target only; exits trail instead of capping profit
@@ -45,7 +47,9 @@ DEFAULTS = {
     "max_loss_streak": 3,           # pause after this many losses in a row (risk.py --resume)
     "breakeven_r": 1.0,             # at +1R the stop moves to entry
     "trail_r": 1.0,                 # then trails 1R behind the best price
-    "time_stop_min": 30, "time_stop_r": 0.5,   # exit if not +0.5R after 30 minutes
+    "time_stop_min": 60, "time_stop_r": 0.5,   # exit if not +0.5R after 60 minutes (30 was too tight)
+    "partial_r": 2.0,               # sell half at +2R when holding 2 or more shares
+    "predictor_min": 0,             # 0 = shadow mode (score logged, never blocks)
     "stale_data_min": 10,           # exit an open trade if prices stop arriving
     "in_play_top": 3,               # only the 3 breakouts with the highest relative volume
     "chase_pct": 1.0,               # skip if price ran >1% past the trigger close
@@ -130,6 +134,22 @@ def load_config():
                 cfg[k].update(v)
             else:
                 cfg[k] = v
+    return cfg
+
+
+def with_money(cfg):
+    """Add equity, peak, drawdown and the rupee limits derived from the percent rules."""
+    import journal
+    eq = peak = float(cfg["account_inr"])
+    for r in journal.trades():
+        if r["status"] == "closed":
+            eq += float(r["net_pnl"] or 0)
+            peak = max(peak, eq)
+    cfg = dict(cfg, equity=round(eq, 2), peak_equity=round(peak, 2),
+               drawdown_pct=round((peak - eq) / peak * 100, 2) if peak else 0.0)
+    for key, pct in (("max_loss_per_trade", "risk_pct_trade"), ("max_loss_per_day", "loss_pct_day"),
+                     ("max_loss_per_week", "loss_pct_week")):
+        cfg[key] = round(eq * cfg[pct] / 100, 2)
     return cfg
 
 

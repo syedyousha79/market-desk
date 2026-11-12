@@ -58,8 +58,12 @@ def check(plan, cfg, now):
         reasons.append("only %s of this week's loss budget left" % C.inr(max(0, room_week)))
     if (plan.get("net_reward_risk") or 0) < cfg["min_reward_risk"]:
         reasons.append("net reward:risk %s is under %s after charges" % (plan.get("net_reward_risk"), cfg["min_reward_risk"]))
-    if plan["margin_needed"] > cfg["account_inr"] + 0.005:
-        reasons.append("needs ~%s margin, account is %s" % (C.inr(plan["margin_needed"]), C.inr(cfg["account_inr"])))
+    eq = cfg.get("equity", cfg["account_inr"])
+    if plan["margin_needed"] > eq + 0.005:
+        reasons.append("needs ~%s margin, equity is %s" % (C.inr(plan["margin_needed"]), C.inr(eq)))
+    if cfg.get("drawdown_pct", 0) >= cfg["kill_drawdown_pct"]:
+        reasons.append("KILL SWITCH: equity is %s%% below its peak (limit %s%%); all trading stopped until a full review"
+                       % (cfg["drawdown_pct"], cfg["kill_drawdown_pct"]))
     return reasons
 
 
@@ -68,7 +72,7 @@ def main(argv=None):
     p.add_argument("--at")
     p.add_argument("--resume", action="store_true", help="lift the losing-streak pause after a review")
     a = p.parse_args(argv)
-    cfg = C.load_config()
+    cfg = C.with_money(C.load_config())
     now = C.now_ist(a.at)
     if a.resume:
         C.write_json("state/pause.json", {"cleared_at": now.date().isoformat() + now.strftime("%H:%M")})

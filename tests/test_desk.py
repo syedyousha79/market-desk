@@ -61,7 +61,7 @@ class DeskTest(unittest.TestCase):
         C.load_env = lambda: {}          # tests never see the real .env
         os.environ["NSE_OFFLINE"] = self.data
         os.environ["NSE_NO_TELEGRAM"] = "1"
-        self.cfg = json.loads(json.dumps(C.DEFAULTS))
+        self.cfg = dict(json.loads(json.dumps(C.DEFAULTS)), max_loss_per_trade=25.0)
         self.cfg["watchlist"] = ["TESTCO"]
         os.makedirs(C.TRADER)
         with open(os.path.join(C.TRADER, "config.json"), "w") as f:
