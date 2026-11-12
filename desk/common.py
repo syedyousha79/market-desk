@@ -49,6 +49,8 @@ DEFAULTS = {
     "trail_r": 1.0,                 # then trails 1R behind the best price
     "time_stop_min": 60, "time_stop_r": 0.5,   # exit if not +0.5R after 60 minutes (30 was too tight)
     "partial_r": 2.0,               # sell half at +2R when holding 2 or more shares
+    "auto_approve": False,          # paper only: the approver says yes/no instead of you
+    "vix_jump_pct": 15.0,           # guardian: no new trades if India VIX is up this much today
     "predictor_min": 0,             # 0 = shadow mode (score logged, never blocks)
     "stale_data_min": 10,           # exit an open trade if prices stop arriving
     "in_play_top": 3,               # only the 3 breakouts with the highest relative volume

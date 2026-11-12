@@ -37,6 +37,14 @@ Exits: break-even at +1R, then a stop trailing 1R behind the best price, bad-new
 time stop, stale-data exit, 15:15 flat-by. Entries always need your yes; exits never do.
 One open trade at a time; 3 losses in a row pauses trading until `python desk/risk.py --resume`.
 
+## Autopilot (paper only)
+
+With `auto_approve` on, `desk/approver.py` says yes or no to each idea instead of you, using the risk
+gate. The guardian halts by itself: STOP file (`trader/STOP`), kill switch, day loss limit, losing
+streak, India VIX jump, repeated errors. `python desk/brain.py resume` lifts a halt after review.
+Live trading waits: 100+ paper trades with positive net, Zerodha/SEBI algo setup, a fixed-IP server,
+and a stop-loss order placed at Zerodha with every entry.
+
 ## Your limits (percent of equity; change in `trader/config.json`)
 
 Risk 2.5% a trade and stop at -2.5% a day, -6% a week; kill switch at 15% below peak equity.

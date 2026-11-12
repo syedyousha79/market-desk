@@ -1,3 +1,4 @@
 {
-  "telegram_paused": true
+  "telegram_paused": true,
+  "auto_approve": true
 }

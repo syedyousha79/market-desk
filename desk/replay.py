@@ -36,6 +36,7 @@ def main(argv=None):
     g.add_argument("--account", type=float, help="fake account in rupees")
     p.add_argument("--days", type=int, default=5)
     p.add_argument("--symbols", nargs="*")
+    p.add_argument("--name", default="replay", help="folder under trader/ (run several replays side by side)")
     a = p.parse_args(argv)
 
     os.environ["NSE_NO_TELEGRAM"] = "1"
@@ -48,7 +49,7 @@ def main(argv=None):
         account = a.account or real_cfg["account_inr"]
 
     # isolated workspace
-    work = os.path.join(C.TRADER, "replay")
+    work = os.path.join(C.TRADER, a.name)
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
     cfg_over = {k: v for k, v in real_cfg.items() if k not in ("charges",)}
@@ -165,7 +166,7 @@ def main(argv=None):
         print("Signals not taken, by reason:")
         for k, v in sorted(blocks.items(), key=lambda kv: -kv[1]):
             print("  %3d  %s" % (v, k))
-    print("\nReplay journal: trader/replay/journal.csv. Simulated fills; real ones can be worse.")
+    print("\nReplay journal: trader/%s/journal.csv. Simulated fills; real ones can be worse." % a.name)
     return 0
 
 

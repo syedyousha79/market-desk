@@ -14,6 +14,17 @@ import common as C
 import journal as J
 
 
+def loss_streak(trades):
+    """Losses in a row since the last review (risk.py --resume or brain.py resume)."""
+    cleared = (C.read_json("state/pause.json", {}) or {}).get("cleared_at", "")
+    n = 0
+    for r in reversed([r for r in trades if r["status"] == "closed" and r["date"] + r["exit_at"] > cleared]):
+        if float(r["net_pnl"] or 0) >= 0:
+            break
+        n += 1
+    return n
+
+
 def check(plan, cfg, now):
     reasons = []
     if not plan or not plan.get("qty"):
@@ -39,12 +50,7 @@ def check(plan, cfg, now):
     open_rows = [r for r in trades if r["status"] == "open"]
     if len(open_rows) >= cfg["max_open"]:
         reasons.append("%d trade(s) already open (limit %d)" % (len(open_rows), cfg["max_open"]))
-    cleared = (C.read_json("state/pause.json", {}) or {}).get("cleared_at", "")
-    streak = 0
-    for r in reversed([r for r in trades if r["status"] == "closed" and r["date"] + r["exit_at"] > cleared]):
-        if float(r["net_pnl"] or 0) >= 0:
-            break
-        streak += 1
+    streak = loss_streak(trades)
     if streak >= cfg["max_loss_streak"]:
         reasons.append("%d losses in a row: paused until reviewed (python desk/risk.py --resume)" % streak)
     open_risk = sum(float(r["max_loss"] or 0) for r in open_rows)

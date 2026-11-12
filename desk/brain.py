@@ -3,6 +3,7 @@
     python desk/brain.py setup     # link your Telegram chat (after sending 'hello' to the bot)
     python desk/brain.py test      # send a test message
     python desk/brain.py check     # one pass now
+    python desk/brain.py resume    # lift a guardian halt after you have reviewed it
     python desk/brain.py watch     # loop: every minute in market hours, every 15 minutes otherwise
 
 Each pass: news scout -> signal agent -> position monitor -> flat-by warning,
@@ -13,6 +14,7 @@ import argparse
 import sys
 import time
 
+import approver as A
 import common as C
 import news as N
 import paper as P
@@ -48,6 +50,12 @@ def text(e):
         return "STOP RAISED %s to %s (best %s): profit protected" % (e["symbol"], e["stop"], e["peak"])
     if k == "exit":
         return "PAPER EXIT %s @ %s (%s), net %s" % (e["symbol"], e["price"], e["reason"], C.inr(float(e["net"])))
+    if k == "approved":
+        return "APPROVED %s x%s (score %s): %s" % (e["symbol"], e["qty"], e.get("score"), e["why"])
+    if k == "rejected":
+        return None                                  # logged on the board, not worth a phone buzz
+    if k == "halt":
+        return "HALT: %s (until %s). python desk/brain.py resume after review." % (e["reason"], e["until"])             if e["until"] != "none" else "Trading resumed."
     if k == "warn":
         return e["text"]
     return None
@@ -72,11 +80,15 @@ def check(cfg, now, quiet=False):
                 print("news skipped: %s" % str(e)[:80])
     if C.phase(now, cfg) == "open":
         P.update(cfg, now)                           # protect money first
-        try:
-            SG.ideas(cfg, now)
-        except Exception as e:                       # a signal hiccup must never stop the monitor
-            if not quiet:
-                print("signals skipped: %s" % str(e)[:80])
+        money = C.with_money(cfg)
+        if not A.guard(money, now):                  # guardian: emergency stops, halts
+            try:
+                for idea in SG.ideas(cfg, now):
+                    if cfg["auto_approve"]:
+                        A.decide(idea, C.with_money(cfg), now)
+            except Exception as e:                   # a signal hiccup must never stop the monitor
+                if not quiet:
+                    print("signals skipped: %s" % str(e)[:80])
         flat = C.dt.datetime.combine(now.date(), C.hhmm(cfg["flat_by"]), C.IST)
         if not st["flat_warned"] and flat - C.dt.timedelta(minutes=10) <= now < flat:
             st["flat_warned"] = True
@@ -102,13 +114,17 @@ def has_open():
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    for n in ("setup", "test", "watch"):
+    for n in ("setup", "test", "watch", "resume"):
         sub.add_parser(n)
     sub.add_parser("check").add_argument("--at")
     a = p.parse_args(argv)
     cfg = C.load_config()
     if a.cmd == "setup":
         return setup()
+    if a.cmd == "resume":
+        A.resume(C.now_ist())
+        print("Halt and losing-streak pause lifted. Make sure you know why it stopped.")
+        return 0
     if cfg.get("telegram_paused") and a.cmd == "test":
         print("Telegram is paused (telegram_paused in trader/config.json).")
         return 0

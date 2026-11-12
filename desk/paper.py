@@ -140,7 +140,7 @@ def last_bar(symbol, now):
     return bars[-1]
 
 
-def open_trade(plan, reply, cfg, now):
+def open_trade(plan, reply, cfg, now, who="you"):
     ok, why = ready(plan, now)
     if not ok:
         raise C.DeskError("not placed: " + why)
@@ -167,7 +167,7 @@ def open_trade(plan, reply, cfg, now):
            "stop": plan["stop"], "cur_stop": plan["stop"], "target": plan["target"],
            "max_loss": round(qty * abs(px - plan["stop"]) + C.charges(qty * buy, qty * sell, cfg)["total"], 2),
            "opened_at": (bar["t"] + C.dt.timedelta(minutes=C.BAR_MIN)).strftime("%H:%M"),
-           "status": "open", "setup": plan.get("setup"), "paper": "true", "reply": reply}
+           "status": "open", "setup": plan.get("setup"), "paper": "true", "reply": reply if who == "you" else "auto: " + who}
     if row["max_loss"] > cfg["max_loss_per_trade"] + 0.005:
         raise C.DeskError("price moved to %s: loss at the stop would be %s, over the %s limit; plan again"
                           % (px, C.inr(row["max_loss"]), C.inr(cfg["max_loss_per_trade"])))

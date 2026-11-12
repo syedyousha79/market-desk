@@ -45,6 +45,16 @@ def size(entry, stop, target, cfg):
             "net_reward_risk": round(gain / loss, 2) if loss else None}
 
 
+def build(sym, entry, stop, cfg, now, setup, target=None, target_r=None):
+    """A sized order dict (also used by the approver). qty 0 means no trade."""
+    r = target_r or cfg.get("target_r", 1.5)
+    target = target if target is not None else round(entry + r * (entry - stop), 2)
+    return {"symbol": sym, "date": now.date().isoformat(), "made_at": now.strftime("%H:%M"),
+            "entry": round(entry, 2), "stop": round(stop, 2), "target": round(target, 2),
+            "flat_by": cfg["flat_by"], "product": "MIS", "paper": cfg["paper"], "setup": setup,
+            **size(entry, stop, target, cfg)}
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("symbol")
@@ -73,13 +83,8 @@ def main(argv=None):
             raise C.DeskError("pass --stop, or scan first so the opening range is known")
         long_ = hit.get("side", "long") == "long"
         stop = hit["or_mid"] if a.stop_rule == "or-mid" else (hit["or_low"] if long_ else hit["or_high"])
-    r = a.target_r or cfg.get("target_r", 1.5)
-    target = a.target if a.target is not None else round(entry + r * (entry - stop), 2)
-    s = size(entry, stop, target, cfg)
-    order = {"symbol": sym, "date": now.date().isoformat(), "made_at": now.strftime("%H:%M"),
-             "entry": round(entry, 2), "stop": round(stop, 2), "target": round(target, 2),
-             "flat_by": cfg["flat_by"], "product": "MIS", "paper": cfg["paper"],
-             "setup": "orb" if hit else "manual", **s}
+    order = build(sym, entry, stop, cfg, now, "orb" if hit else "manual", a.target, a.target_r)
+    s, target = order, order["target"]
     C.write_json("plan.json", order)
 
     print("PLAN %s (%s), %s account" % (sym, order["setup"], "PAPER" if cfg["paper"] else "LIVE"))
