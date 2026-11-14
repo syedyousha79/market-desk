@@ -62,6 +62,10 @@ def check(plan, cfg, now):
         reasons.append("only %s of today's loss budget left" % C.inr(max(0, room_day)))
     if plan["max_loss"] > room_week + 0.005:
         reasons.append("only %s of this week's loss budget left" % C.inr(max(0, room_week)))
+    ch = (plan.get("charges_at_stop") or {}).get("total", 0)
+    if plan.get("max_loss") and ch / plan["max_loss"] > cfg["max_charges_r"]:
+        reasons.append("charges %s are %.0f%% of the risk (limit %.0f%%)"
+                       % (C.inr(ch), ch / plan["max_loss"] * 100, cfg["max_charges_r"] * 100))
     if (plan.get("net_reward_risk") or 0) < cfg["min_reward_risk"]:
         reasons.append("net reward:risk %s is under %s after charges" % (plan.get("net_reward_risk"), cfg["min_reward_risk"]))
     eq = cfg.get("equity", cfg["account_inr"])

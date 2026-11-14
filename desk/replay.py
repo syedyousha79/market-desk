@@ -36,6 +36,7 @@ def main(argv=None):
     g.add_argument("--account", type=float, help="fake account in rupees")
     p.add_argument("--days", type=int, default=5)
     p.add_argument("--symbols", nargs="*")
+    p.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE", help="override rules, e.g. risk_pct_trade=5")
     p.add_argument("--name", default="replay", help="folder under trader/ (run several replays side by side)")
     a = p.parse_args(argv)
 
@@ -56,6 +57,9 @@ def main(argv=None):
     cfg_over.update(account_inr=account, paper=True, telegram_paused=True)
     if a.symbols:
         cfg_over["watchlist"] = a.symbols
+    for kv in a.set:                                 # e.g. risk_pct_trade=5 loss_pct_day=10
+        k, v = kv.split("=", 1)
+        cfg_over[k] = int(v) if v.isdigit() else (float(v) if v.replace(".", "", 1).isdigit() else v)
     C.TRADER = work
     C.write_json("config.json", cfg_over)
 
@@ -92,6 +96,8 @@ def main(argv=None):
         return code, buf.getvalue()
 
     for day in days:
+        if day.weekday() == 0:                       # Monday: the weekly review lifts a losing-streak pause
+            C.write_json("state/pause.json", {"cleared_at": day.isoformat() + "09:00"})
         t = dt.datetime.combine(day, dt.time(9, 35), C.IST)
         end = dt.datetime.combine(day, C.CLOSE, C.IST)
         while t <= end:

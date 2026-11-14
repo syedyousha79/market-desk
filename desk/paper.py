@@ -114,7 +114,8 @@ def update(cfg, now):
                 now - (bars[-1]["t"] + C.dt.timedelta(minutes=C.BAR_MIN)) > C.dt.timedelta(minutes=cfg["stale_data_min"]):
             hit = (bars[-1]["c"], now.strftime("%H:%M"), "prices stopped arriving")
         flat = C.hhmm(row.get("flat_by") or cfg["flat_by"])
-        if hit is None and bars and (now.date() > day or now.time() >= flat) and bars[-1]["t"].time() < flat:
+        late = C.dt.datetime.combine(day, flat, C.IST) + C.dt.timedelta(minutes=C.BAR_MIN + cfg["stale_data_min"])
+        if hit is None and bars and (now.date() > day or now >= late) and bars[-1]["t"].time() < flat:
             hit = (bars[-1]["c"], flat.strftime("%H:%M"), "flat-by (data gap)")
         if hit is None and now.date() > day and bars:
             hit = (bars[-1]["c"], bars[-1]["t"].strftime("%H:%M"), "session end")

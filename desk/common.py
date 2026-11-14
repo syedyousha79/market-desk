@@ -49,6 +49,8 @@ DEFAULTS = {
     "trail_r": 1.0,                 # then trails 1R behind the best price
     "time_stop_min": 60, "time_stop_r": 0.5,   # exit if not +0.5R after 60 minutes (30 was too tight)
     "partial_r": 2.0,               # sell half at +2R when holding 2 or more shares
+    "min_stop_pct": 1.0,            # stop at least 1% from entry (replays: tight stops paid 0.18R in charges)
+    "max_charges_r": 0.10,          # skip trades whose charges exceed 10% of the risk
     "auto_approve": False,          # paper only: the approver says yes/no instead of you
     "vix_jump_pct": 15.0,           # guardian: no new trades if India VIX is up this much today
     "predictor_min": 0,             # 0 = shadow mode (score logged, never blocks)
@@ -244,8 +246,11 @@ def fetch_bars(symbol, rng="5d", interval="5m"):
         with open(path, "rb") as f:
             raw = f.read()
     else:
-        url = "https://query1.finance.yahoo.com/v8/finance/chart/%s?range=%s&interval=%s" % (
-            urllib.parse.quote(sym), rng, interval)
+        # "since:YYYY" asks for an explicit date range: Yahoo's range=max silently downsamples daily bars
+        span = ("period1=%d&period2=%d" % (dt.datetime(int(rng[6:]), 1, 1).timestamp(), dt.datetime.now().timestamp())
+                if rng.startswith("since:") else "range=%s" % rng)
+        url = "https://query1.finance.yahoo.com/v8/finance/chart/%s?%s&interval=%s" % (
+            urllib.parse.quote(sym), span, interval)
         try:
             raw = _get(url)
         except Exception as e:
