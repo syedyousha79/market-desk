@@ -3,18 +3,16 @@
 Read this first, then `CLAUDE.md` and `docs/LESSONS.md` (31 lessons). Everything is paused.
 
 ## What this is
-NSE research and **paper** trading desk for a 3-person team (user is the Zerodha account holder).
+NSE research and **paper** trading desk for a small team.
 Plain Python (standard library only), run through Claude Code on Windows. Research and tooling, not advice.
 
 ## Current state
-- Repo: private GitHub `syedyousha79/market-desk`. Local: `D:\Downloads\market-desk`.
 - Checked-out branch: `fix/flat-by-label-and-replay-set` = **PR #1, open, not merged** into `main`.
   It holds everything since the flat-by fix (risk tests, rules, weekly/etf/combo backtests, lessons).
 - Tests: `python -m unittest discover -s tests` (74 pass). Set `NSE_NO_TELEGRAM=1` when running them.
 - Nothing running. Brain only runs when the user starts `python desk/brain.py watch`.
 - `trader/config.json` (tracked): `telegram_paused: true`, `auto_approve: true` (paper only).
-- `.env` holds the Telegram bot token and chat id (never read or print it). Bot: @marketdeskalertbot.
-- Installed globally: ECC plugin (hooks OFF), `uv`. Agent Reach was removed at the user's request.
+- `.env` holds the Telegram bot token and chat id (never read or print it); see `.env.example`.
 
 ## Layout
 | Path | What |
